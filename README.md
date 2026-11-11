@@ -67,7 +67,11 @@ sont enregistrées puis **fusionnées** avec la version reçue, puis le résulta
   historique ; un clip réellement différent qui en chevauche un autre est **décalé sur la piste libre
   la plus proche** (vers le bas, sinon vers le haut) ;
 - un clip déplacé ou supprimé d'un côté suit ce changement, sans laisser de copie derrière lui ;
-- les ajouts de canaux, de patterns et de plugins faits d'un côté et de l'autre sont gardés ;
+- les ajouts de canaux, de patterns et de plugins faits d'un côté et de l'autre sont gardés, même si vous
+  avez créé un instrument en même temps (le vôtre est renuméroté, chacun garde son synthé, son preset et
+  ses notes) ;
+- un simple enregistrement de FL Studio (horodatage, numéros internes) n'est pas une modification : il
+  ne déclenche aucun envoi ;
 - si le même réglage a été modifié des deux côtés, **la valeur de celui qui enregistre** est gardée,
   et l'application le dit dans la discussion.
 

@@ -349,11 +349,118 @@ def _merge_blob(eid, b, m, t, rep):
     return b''.join(_renumber(kept + placed))
 
 
+def _ids(evs):
+    """Numeros de canaux et de motifs crees par une suite d'evenements."""
+    out = set()
+    for e, r in evs:
+        if e == NEW_CHAN:
+            out.add(('c', struct.unpack('<H', r[:2])[0]))
+        elif e == NEW_PAT:
+            out.add(('p', struct.unpack('<H', r[:2])[0]))
+    return out
+
+
+VOLATILE = (237, 199, 159)       # horodatage, version, compteur : changent a chaque sauvegarde
+
+
+def _remap(evs, chmap, patmap):
+    """Renumerote canaux et motifs (evenements, notes, clips de playlist)."""
+    out, cur = [], None
+    for e, r in evs:
+        if e == NEW_CHAN:
+            old = struct.unpack('<H', r[:2])[0]
+            cur = old if old in chmap else None
+            if cur is not None:
+                r = struct.pack('<H', chmap[old])
+        elif e in (NEW_PAT, 99):
+            cur = None
+            if e == NEW_PAT:
+                old = struct.unpack('<H', r[:2])[0]
+                if old in patmap:
+                    r = struct.pack('<H', patmap[old])
+        elif cur is not None and e in (104, 132, 215):
+            b = bytearray(r)
+            for off in ((0,) if e == 104 else (0, 2) if e == 132 else (8,)):
+                if struct.unpack_from('<H', b, off)[0] == cur:
+                    struct.pack_into('<H', b, off, chmap[cur])
+            r = bytes(b)
+        elif e == NOTES and chmap:
+            b = bytearray(r)
+            for i in range(0, len(b) - NOTE_SIZE + 1, NOTE_SIZE):
+                rack = struct.unpack_from('<H', b, i + 6)[0]
+                if rack in chmap:
+                    struct.pack_into('<H', b, i + 6, chmap[rack])
+            r = bytes(b)
+        elif e == PLAYLIST:
+            b = bytearray(r)
+            for i in range(0, len(b) - ITEM_SIZE + 1, ITEM_SIZE):
+                idx = struct.unpack_from('<H', b, i + 6)[0]
+                if idx >= 0x5000 and idx - 0x5000 in patmap:
+                    struct.pack_into('<H', b, i + 6, 0x5000 + patmap[idx - 0x5000])
+                elif idx < 0x5000 and idx in chmap:
+                    struct.pack_into('<H', b, i + 6, chmap[idx])
+            r = bytes(b)
+        out.append((e, r))
+    return out
+
+
+def _structure(evs):
+    chans, pats = [], []
+    for e, r in evs:
+        if e == NEW_CHAN:
+            chans.append(struct.unpack('<H', r[:2])[0])
+        elif e == NEW_PAT:
+            v = struct.unpack('<H', r[:2])[0]
+            if v not in pats:
+                pats.append(v)
+    return chans, pats
+
+
+def _deconflict(eb, em, et):
+    """Canaux ou motifs crees des deux cotes avec le meme numero : ceux du cote local sont
+    renumerotes a la suite, pour que rien ne soit ecrase ni confondu."""
+    cb, pb = _structure(eb)
+    cm, pm = _structure(em)
+    ct, pt = _structure(et)
+    new_m_c = [c for c in cm if c not in cb]
+    new_t_c = [c for c in ct if c not in cb]
+    new_m_p = [p for p in pm if p not in pb]
+    new_t_p = [p for p in pt if p not in pb]
+    chmap, patmap = {}, {}
+    if set(new_m_c) & set(new_t_c):
+        nxt = max(cb + cm + ct + [-1]) + 1
+        for c in new_m_c:
+            if c in new_t_c:
+                chmap[c] = nxt
+                nxt += 1
+    if set(new_m_p) & set(new_t_p):
+        nxt = max(pb + pm + pt + [0]) + 1
+        for p in new_m_p:
+            if p in new_t_p:
+                patmap[p] = nxt
+                nxt += 1
+    return (_remap(em, chmap, patmap) if chmap or patmap else em), bool(chmap or patmap)
+
+
+def _semantic(evs):
+    """Contenu qui compte : sans les champs volatils, avec clips et notes compares par identite."""
+    out = []
+    for e, r in evs:
+        if e in VOLATILE:
+            continue
+        if e == PLAYLIST:
+            r = b''.join(sorted(_item_sig(x) for x in _chunks(r, ITEM_SIZE)))
+        elif e == NOTES:
+            r = b''.join(sorted(_note_sig(x) for x in _chunks(r, NOTE_SIZE)))
+        out.append((e, r))
+    return out
+
+
 def _resolve(bs, ms, ts, rep):
     """Zone modifiee des deux cotes : renvoie la liste d'evenements retenue."""
     if ms == ts:
         return ts
-    if not bs and not any(e in (NEW_CHAN, NEW_PAT) for e, _ in ms + ts):
+    if not bs and not (_ids(ms) & _ids(ts)):
         return ts + ms                      # ajouts independants au meme endroit : on garde tout
     if len(bs) == len(ms) == len(ts) and all(b[0] == m[0] == t[0] for b, m, t in zip(bs, ms, ts)):
         out = []
@@ -390,9 +497,26 @@ def merge(base, mine, theirs):
     except (ValueError, IndexError):
         rep['why'] = 'fichier illisible'
         return theirs, rep
+    # les champs volatils locaux ne sont pas des modifications : on garde ceux de la base
+    vol = {}
+    for e, r in eb:
+        if e in VOLATILE:
+            vol.setdefault(e, []).append(r)
+    seen = {}
+    fixed = []
+    for e, r in em:
+        if e in VOLATILE:
+            k = seen.get(e, 0)
+            seen[e] = k + 1
+            if k < len(vol.get(e, ())):
+                r = vol[e][k]
+        fixed.append((e, r))
+    em = fixed
     if em == eb:
         rep['ok'] = True
         return theirs, rep
+    em, renum = _deconflict(eb, em, et)
+    rep['renumbered'] = renum
     hunks = []
     for side, ev in (('m', em), ('t', et)):
         sm = difflib.SequenceMatcher(None, eb, ev, autojunk=False)
@@ -428,7 +552,15 @@ def merge(base, mine, theirs):
     res += eb[pos:]
     # les hunks d'un meme cote sont traites dans l'ordre de la base : on a bien reconstruit « base + m + t »
     rep['ok'] = True
-    if res == et:
+    if res == et or _semantic(res) == _semantic(et):
         return theirs, rep
     rep['changed'] = True
     return _build(_head(theirs), res), rep
+
+
+def same_content(a, b):
+    """Deux versions du projet sont-elles identiques, horodatages et numeros de serie mis a part ?"""
+    try:
+        return a == b or _semantic(list(events(a))) == _semantic(list(events(b)))
+    except (ValueError, IndexError):
+        return False

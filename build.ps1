@@ -6,7 +6,8 @@ $venv = Join-Path $PSScriptRoot '.build-venv'
 if (-not (Test-Path $venv)) { py -3.14 -m venv $venv }
 & "$venv\Scripts\python.exe" -m pip install --quiet --upgrade pip pyinstaller
 & "$venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --onefile --windowed `
-    --name FLCoworkSetup --paths . `
+    --name FLCoworkSetup --paths . --icon "$PSScriptRoot\cowork\icon.ico" `
+    --add-data "$PSScriptRoot\cowork\icon.png;." `
     --add-data "$PSScriptRoot\fl_script\device_FLCowork.py;." `
     --distpath dist --workpath build --specpath build `
     cowork\__main__.py

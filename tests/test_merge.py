@@ -150,6 +150,36 @@ o, r = flp.merge(base, make(tpl, B + [clip(768, 384, 499, serial=12)], [note(0, 
 ids = [x[2] for x in pl(o)]
 assert len(ids) == len(set(ids)), ids
 
+# --- deux canaux crees en meme temps avec le meme numero ------------------------
+def note_r(pos, key, rack):
+    b = bytearray(note(pos, key))
+    struct.pack_into('<H', b, 6, rack)
+    return bytes(b)
+
+
+n_ch = nch(base)
+mine_c = add_channel(make(tpl, B, [note(0, 60), note_r(96, 64, n_ch)]), 'Mon synthe')
+theirs_c = add_channel(make(tpl, B, [note(0, 60), note_r(192, 67, n_ch)]), 'Son synthe')
+o, r = flp.merge(base, mine_c, theirs_c)
+assert r['ok'] and r['renumbered'] and r['conflicts'] == 0, r
+assert nch(o) == n_ch + 2, nch(o)
+names = [x.decode('utf-16-le', 'ignore') for e, x in flp.events(o) if e == 203]
+assert any('Son synthe' in x for x in names) and any('Mon synthe' in x for x in names), names
+racks = {struct.unpack_from('<I', x, 0)[0]: struct.unpack_from('<H', x, 6)[0] for x in read(o)[0]}
+assert racks[192] == n_ch and racks[96] == n_ch + 1, racks      # chacun garde son instrument
+
+# une sauvegarde de FL qui ne change que l'horodatage n'est pas une modification
+def stamp(data):
+    return flp._build(flp._head(data), [(e, bytes(16) if e == 237 else r) for e, r in flp.events(data)])
+
+
+o, r = flp.merge(base, stamp(base), theirs)
+assert r['ok'] and not r['changed'] and o == theirs, r
+# meme chose avec des clips renumerotes par FL
+o, r = flp.merge(base, make(tpl, [clip(0, 384, 499, serial=77), clip(384, 384, 499, serial=78),
+                                  clip(0, 384, 498, 2, serial=79)], [note(0, 60)]), theirs)
+assert not r['changed'], r
+
 v = flp.set_version(theirs, '24.0.0.1')
 assert flp.version_of(v) == '24.0.0.1' and read(v) == read(theirs)
 print('FUSION OK')

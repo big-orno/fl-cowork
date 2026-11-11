@@ -848,7 +848,7 @@ class App:
         def read():
             with open(s.flp, 'rb') as f, open(base, 'rb') as g:
                 mine, ref = f.read(), g.read()
-            if mine == ref:
+            if flp.same_content(mine, ref):
                 return None
             bk = os.path.join(s.dir, 'Sauvegardes')
             os.makedirs(bk, exist_ok=True)

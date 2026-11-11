@@ -6,6 +6,11 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import env
 
+BG, PANEL, FIELD, LINE = '#17191d', '#1d2126', '#111317', '#2e343c'
+TXT, DIM, ACC = '#e8eaed', '#98a1ad', '#ff8a3d'
+OK, BAD = '#6fdc8c', '#ff6b6b'
+BTN, BTN_HOT = '#2b3038', '#3a414c'
+
 
 class Gui(tk.Tk):
     def __init__(self, app, loop_ready, thread):
@@ -14,17 +19,10 @@ class Gui(tk.Tk):
         self.thread = thread
         self.loop_ready = loop_ready
         self.title('FL Cowork')
-        self.geometry('560x760')
-        self.minsize(500, 560)
+        self.geometry('620x840')
+        self.minsize(560, 640)
         self.protocol('WM_DELETE_WINDOW', self.on_close)
-        st = ttk.Style(self)
-        if 'vista' in st.theme_names():
-            st.theme_use('vista')
-        st.configure('Big.TButton', padding=(14, 6))
-        st.configure('Title.TLabel', font=('Segoe UI', 9, 'bold'))
-        st.configure('Dim.TLabel', foreground='#666666')
-        st.configure('Ok.TLabel', foreground='#1a7f37')
-        st.configure('Bad.TLabel', foreground='#b3261e')
+        self.theme()
         self.pending = []          # (futur, rappel)
         self.mode = None
         self.chat_n = (-1, 0)
@@ -33,13 +31,78 @@ class Gui(tk.Tk):
         self.build()
         self.after(100, self.tick)
 
+    # ----------------------------------------------------------- theme sombre
+    def theme(self):
+        self.configure(bg=BG)
+        st = ttk.Style(self)
+        st.theme_use('clam')
+        F = ('Segoe UI', 9)
+        st.configure('.', background=BG, foreground=TXT, fieldbackground=FIELD, bordercolor=LINE,
+                     lightcolor=BG, darkcolor=BG, troughcolor=FIELD, font=F, focuscolor=BG)
+        st.configure('TFrame', background=BG)
+        st.configure('TLabel', background=BG, foreground=TXT)
+        st.configure('Dim.TLabel', foreground=DIM)
+        st.configure('Title.TLabel', font=('Segoe UI', 10, 'bold'))
+        st.configure('Ok.TLabel', foreground=OK)
+        st.configure('Bad.TLabel', foreground=BAD)
+        st.configure('TLabelframe', background=BG, bordercolor=LINE, lightcolor=BG, darkcolor=BG, relief='solid')
+        st.configure('TLabelframe.Label', background=BG, foreground=DIM, font=('Segoe UI', 8, 'bold'))
+        st.configure('Card.TFrame', background=PANEL)
+        for w in ('Card.TLabel',):
+            st.configure(w, background=PANEL)
+        st.configure('TButton', background=BTN, foreground=TXT, bordercolor=LINE, lightcolor=BTN, darkcolor=BTN,
+                     padding=(10, 5), relief='flat')
+        st.map('TButton', background=[('disabled', BG), ('active', BTN_HOT)], foreground=[('disabled', '#5b626c')],
+               bordercolor=[('focus', ACC)])
+        st.configure('Big.TButton', background=ACC, foreground='#1b1206', bordercolor=ACC, lightcolor=ACC, darkcolor=ACC,
+                     padding=(16, 7), font=('Segoe UI', 9, 'bold'))
+        st.map('Big.TButton', background=[('disabled', '#6b4a2d'), ('active', '#ff9d5c')],
+               foreground=[('disabled', '#2a2118')])
+        st.configure('TEntry', fieldbackground=FIELD, foreground=TXT, insertcolor=TXT, bordercolor=LINE,
+                     lightcolor=FIELD, darkcolor=FIELD, padding=5)
+        st.map('TEntry', bordercolor=[('focus', ACC)], lightcolor=[('focus', ACC)], darkcolor=[('focus', ACC)],
+               fieldbackground=[('readonly', FIELD)], foreground=[('readonly', TXT)])
+        st.configure('TCheckbutton', background=BG, foreground=TXT, indicatorbackground=FIELD,
+                     indicatorforeground=ACC, bordercolor=LINE)
+        st.map('TCheckbutton', background=[('active', BG)], indicatorbackground=[('selected', ACC)])
+        st.configure('Treeview', background=FIELD, fieldbackground=FIELD, foreground=TXT, bordercolor=LINE, rowheight=24)
+        st.configure('Treeview.Heading', background=PANEL, foreground=DIM, bordercolor=LINE, relief='flat',
+                     font=('Segoe UI', 8, 'bold'))
+        st.map('Treeview', background=[('selected', '#3a2f26')], foreground=[('selected', TXT)])
+        st.map('Treeview.Heading', background=[('active', PANEL)])
+        st.configure('Horizontal.TProgressbar', background=ACC, troughcolor=FIELD, bordercolor=LINE,
+                     lightcolor=ACC, darkcolor=ACC)
+        st.configure('Vertical.TScrollbar', background=BTN, troughcolor=FIELD, bordercolor=FIELD,
+                     arrowcolor=DIM, lightcolor=BTN, darkcolor=BTN)
+        try:
+            self.logo = tk.PhotoImage(file=env.resource('icon.png'))
+            self.iconphoto(True, self.logo)
+        except tk.TclError:
+            self.logo = None
+        self.bind('<Map>', lambda _e: self.after(30, self.dark_titlebar), add='+')
+        self.after(200, self.dark_titlebar)
+
+    def dark_titlebar(self):
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            v = ctypes.c_int(1)
+            for attr in (20, 19):
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4)
+            # force le redessin de la barre de titre
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+        except Exception:
+            pass
+
     # ----------------------------------------------------------- construction
     def build(self):
-        root = ttk.Frame(self, padding=12)
+        root = ttk.Frame(self, padding=14)
         root.pack(fill='both', expand=True)
         top = ttk.Frame(root)
         top.pack(fill='x')
-        ttk.Label(top, text='FL Cowork', font=('Segoe UI', 14, 'bold')).pack(side='left')
+        if self.logo:
+            ttk.Label(top, image=self.logo).pack(side='left', padx=(0, 10))
+        ttk.Label(top, text='FL Cowork', font=('Segoe UI', 15, 'bold')).pack(side='left')
         self.fl_lbl = ttk.Label(top, text='FL Studio : ...')
         self.fl_lbl.pack(side='right')
         ttk.Label(root, textvariable=self.err, style='Bad.TLabel', wraplength=520).pack(fill='x', pady=(6, 0))
@@ -119,7 +182,7 @@ class Gui(tk.Tk):
         r.pack(fill='x', pady=(8, 0))
         self.btn_send = ttk.Button(r, text='Envoyer ma version', command=lambda: self.call('publish'))
         self.btn_send.pack(side='left')
-        self.btn_load = ttk.Button(r, text='Charger la dernière version', command=lambda: self.call('reload'))
+        self.btn_load = ttk.Button(r, text='Charger la version', command=lambda: self.call('reload'))
         self.btn_load.pack(side='left', padx=6)
         ttk.Button(r, text='Dossier', command=lambda: self.call('folder')).pack(side='left')
         ttk.Button(r, text='Quitter la session', command=self.leave).pack(side='right')
@@ -153,7 +216,7 @@ class Gui(tk.Tk):
 
         pe = ttk.LabelFrame(f, text='Participants', padding=10)
         pe.pack(fill='x', pady=(10, 0))
-        self.peers = ttk.Treeview(pe, columns=('fl', 'where'), show='tree headings', height=3)
+        self.peers = ttk.Treeview(pe, columns=('fl', 'where'), show='tree headings', height=2)
         self.peers.heading('#0', text='Nom')
         self.peers.heading('fl', text='FL Studio')
         self.peers.heading('where', text='Fenêtre')
@@ -164,12 +227,13 @@ class Gui(tk.Tk):
 
         ch = ttk.LabelFrame(f, text='Discussion', padding=10)
         ch.pack(fill='both', expand=True, pady=(10, 0))
-        self.chat = tk.Text(ch, height=4, state='disabled', wrap='word', relief='flat', background='#f6f6f6',
+        self.chat = tk.Text(ch, height=4, state='disabled', wrap='word', relief='flat', background=FIELD,
+                            foreground=TXT, insertbackground=TXT, highlightthickness=0, padx=8, pady=6,
                             font=('Segoe UI', 9))
         sb = ttk.Scrollbar(ch, command=self.chat.yview)
         self.chat.configure(yscrollcommand=sb.set)
-        self.chat.tag_configure('sys', foreground='#777777')
-        self.chat.tag_configure('who', font=('Segoe UI', 9, 'bold'))
+        self.chat.tag_configure('sys', foreground=DIM)
+        self.chat.tag_configure('who', font=('Segoe UI', 9, 'bold'), foreground=ACC)
         sb.pack(side='right', fill='y')
         self.chat.pack(fill='both', expand=True)
         r = ttk.Frame(f)
