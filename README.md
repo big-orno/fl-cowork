@@ -98,7 +98,7 @@ le mauvais projet : fusionner deux fichiers sans rapport donnerait n'importe quo
 - **Prendre leur version** : vous rechargez la dernière version partagée, sans fusion. Votre projet
   actuel est copié dans `Sauvegardes` avant d'être remplacé.
 
-Ctrl+S, lui, continue d'envoyer et de fusionner normalement.
+Ctrl+S et le bouton **Envoyer et fusionner** font, eux, toujours une fusion : jamais d'écrasement.
 
 ## Samples
 

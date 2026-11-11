@@ -180,7 +180,7 @@ class Gui(tk.Tk):
         self.bar = ttk.Progressbar(st, maximum=100)
         r = ttk.Frame(st)
         r.pack(fill='x', pady=(8, 0))
-        self.btn_send = ttk.Button(r, text='Envoyer ma version', command=lambda: self.call('publish'))
+        self.btn_send = ttk.Button(r, text='Envoyer et fusionner', command=lambda: self.call('publish'))
         self.btn_send.pack(side='left')
         self.btn_load = ttk.Button(r, text='Charger la version', command=lambda: self.call('reload'))
         self.btn_load.pack(side='left', padx=6)

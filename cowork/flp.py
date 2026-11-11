@@ -461,6 +461,89 @@ def _semantic(evs):
     return out
 
 
+def _lis(pairs):
+    """Plus longue sous-suite croissante en j d'une liste de (i, j) triee par i."""
+    import bisect
+    tails, idx, prev = [], [], [-1] * len(pairs)
+    for k, (_, j) in enumerate(pairs):
+        pos = bisect.bisect_left(tails, j)
+        if pos == len(tails):
+            tails.append(j)
+            idx.append(k)
+        else:
+            tails[pos] = j
+            idx[pos] = k
+        prev[k] = idx[pos - 1] if pos else -1
+    out, k = [], idx[-1] if idx else -1
+    while k >= 0:
+        out.append(pairs[k])
+        k = prev[k]
+    return out[::-1]
+
+
+def _diff(a, b, wa=None, wb=None):
+    """Zones differentes entre deux suites d'entiers : [(i1, i2, j1, j2)].
+
+    Methode « patience » : on s'appuie sur les elements presents une seule fois des deux
+    cotes, ce qui evite le comportement quadratique de difflib sur les fichiers FL (milliers
+    d'evenements quasi identiques)."""
+    from collections import Counter
+    import difflib
+    out = []
+    stack = [(0, len(a), 0, len(b))]
+    while stack:
+        i1, i2, j1, j2 = stack.pop()
+        while i1 < i2 and j1 < j2 and a[i1] == b[j1]:
+            i1 += 1
+            j1 += 1
+        while i1 < i2 and j1 < j2 and a[i2 - 1] == b[j2 - 1]:
+            i2 -= 1
+            j2 -= 1
+        if i1 == i2 and j1 == j2:
+            continue
+        if i1 == i2 or j1 == j2:
+            out.append((i1, i2, j1, j2))
+            continue
+        ca, cb = Counter(a[i1:i2]), Counter(b[j1:j2])
+        where = {}
+        for j in range(j1, j2):
+            if cb[b[j]] == 1 and ca.get(b[j]) == 1:
+                where[b[j]] = j
+        pairs = [(i, where[a[i]]) for i in range(i1, i2) if a[i] in where]
+        pairs = _lis(pairs)
+        if not pairs and wa is not None and (i2 - i1) > 64 and (j2 - j1) > 64:
+            # aucune ancre exacte : on s'appuie sur une cle faible (type d'evenement + 4 premiers octets,
+            # p. ex. le numero de piste), les elements apparies sont alors compares un a un
+            ca, cb = Counter(wa[i1:i2]), Counter(wb[j1:j2])
+            where = {wb[j]: j for j in range(j1, j2) if cb[wb[j]] == 1 and ca.get(wb[j]) == 1}
+            weak = _lis([(i, where[wa[i]]) for i in range(i1, i2) if wa[i] in where])
+            if len(weak) > 16:
+                pi, pj = i1, j1
+                for i, j in weak:
+                    stack.append((pi, i, pj, j))
+                    if a[i] != b[j]:
+                        out.append((i, i + 1, j, j + 1))
+                    pi, pj = i + 1, j + 1
+                stack.append((pi, i2, pj, j2))
+                continue
+        if not pairs:
+            if (i2 - i1) * (j2 - j1) <= 4_000_000:
+                sm = difflib.SequenceMatcher(None, a[i1:i2], b[j1:j2], autojunk=False)
+                for tag, x1, x2, y1, y2 in sm.get_opcodes():
+                    if tag != 'equal':
+                        out.append((i1 + x1, i1 + x2, j1 + y1, j1 + y2))
+            else:
+                out.append((i1, i2, j1, j2))
+            continue
+        pi, pj = i1, j1
+        for i, j in pairs:
+            stack.append((pi, i, pj, j))
+            pi, pj = i + 1, j + 1
+        stack.append((pi, i2, pj, j2))
+    out.sort()
+    return out
+
+
 def _resolve(bs, ms, ts, rep):
     """Zone modifiee des deux cotes : renvoie la liste d'evenements retenue."""
     if ms == ts:
@@ -523,9 +606,13 @@ def merge(base, mine, theirs):
     em, renum = _deconflict(eb, em, et)
     rep['renumbered'] = renum
     hunks = []
+    table = {}
+    ident = lambda evs: [table.setdefault(x, len(table)) for x in evs]   # noqa: E731
+    wtab = {}
+    weak = lambda evs: [wtab.setdefault((e, r[:4]), len(wtab)) for e, r in evs]   # noqa: E731
+    ib, wb = ident(eb), weak(eb)
     for side, ev in (('m', em), ('t', et)):
-        sm = difflib.SequenceMatcher(None, eb, ev, autojunk=False)
-        hunks += [(i1, i2, side, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
+        hunks += [(i1, i2, side, j1, j2) for i1, i2, j1, j2 in _diff(ib, ident(ev), wb, weak(ev))]
     hunks.sort(key=lambda h: (h[0], h[1], h[2]))
     groups = []
     for h in hunks:

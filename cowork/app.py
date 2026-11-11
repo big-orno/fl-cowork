@@ -701,6 +701,7 @@ class App:
         if not force and s.rev and s.file_n != s.rev['n'] and s.rev.get('author') != s.id:
             # une version plus recente existe : on la recoit et on y fusionne ce travail, puis on publie
             if not s.fetching:
+                self.say("Une version plus récente existe : fusion avec votre travail avant l'envoi.")
                 s.tasks.append(asyncio.ensure_future(self.fetch(s)))
             return
         s.publishing = True
@@ -881,7 +882,10 @@ class App:
         if mine is not None:
             with open(base, 'rb') as f:
                 ref = f.read()
-            data, r = flp.merge(ref, mine, theirs)
+            try:
+                data, r = flp.merge(ref, mine, theirs)
+            except Exception as e:      # une fusion qui echoue ne doit jamais bloquer la reception
+                data, r = theirs, {'ok': False, 'why': 'erreur interne : %s' % e}
             if r['ok']:
                 changed = r['changed']
                 if changed:

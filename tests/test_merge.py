@@ -205,6 +205,29 @@ o, r = flp.merge(base, loc, theirs)
 assert r['ok'] and not r['changed'], r
 assert flp.same_content(loc, base)
 
+# --- performance : des milliers d'evenements quasi identiques (pistes de playlist) ---
+import time  # noqa: E402
+
+
+def with_tracks(data, salt):
+    evs = list(flp.events(data))
+    k = next(i for i, (e, _) in enumerate(evs) if e == flp.PLAYLIST)
+    tr = []
+    for i in range(500):
+        tr += [(238, struct.pack('<I', i) + bytes([salt]) * 66), (43, bytes((i % 2,)))]
+    return flp._build(flp._head(data), evs[:k + 1] + tr + evs[k + 1:])
+
+
+def resalt(data):
+    return flp._build(flp._head(data), [(e, r[:4] + bytes([9]) * 66) if e == 238 else (e, r) for e, r in flp.events(data)])
+
+
+t0 = time.time()
+tracks_base = with_tracks(base, 1)
+o, r = flp.merge(tracks_base, with_tracks(mine, 1), resalt(with_tracks(theirs, 1)))
+assert r['ok'] and time.time() - t0 < 3, time.time() - t0
+assert len(read(o)[0]) == 3 and sum(1 for e, _ in flp.events(o) if e == 238) == sum(1 for e, _ in flp.events(tracks_base) if e == 238)
+
 v = flp.set_version(theirs, '24.0.0.1')
 assert flp.version_of(v) == '24.0.0.1' and read(v) == read(theirs)
 print('FUSION OK')
