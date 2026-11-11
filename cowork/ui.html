@@ -68,6 +68,7 @@ label.tg{display:flex;gap:8px;align-items:center;cursor:pointer;padding:3px 0}
     <div class="card">
       <h2>Héberger une session</h2>
       <div class="row"><input class="grow" type="text" id="path" placeholder="Projet .flp (vide = nouveau projet)"><button id="browse">Parcourir…</button></div>
+      <div class="row" style="margin-top:8px"><input class="grow" type="text" id="pname" maxlength="60" placeholder="Nom du nouveau projet (si aucun .flp choisi)"></div>
       <div class="dim small" style="margin:8px 0">Le projet est copié dans Documents\FL Cowork avec ses samples, puis partagé.</div>
       <button class="pri" id="host">Créer la session</button>
     </div>
@@ -192,7 +193,7 @@ async function poll(){ try { const r = await fetch('/api/state', {headers:{'X-To
 setInterval(poll, 700); poll();
 $('name').addEventListener('change', e => act('name', {value:e.target.value}));
 $('browse').onclick = async () => { const j = await act('browse'); if (j.path) $('path').value = j.path; };
-$('host').onclick = async e => { e.target.disabled = true; showErr(''); await act('host', {path:$('path').value.trim()}); e.target.disabled = false; };
+$('host').onclick = async e => { e.target.disabled = true; showErr(''); await act('host', {path:$('path').value.trim(), name:$('pname').value.trim()}); e.target.disabled = false; };
 $('join').onclick = async e => { e.target.disabled = true; showErr(''); await act('join', {code:$('code').value.trim()}); e.target.disabled = false; };
 $('leave').onclick = () => { if (confirm('Quitter la session ?')) act('leave'); };
 $('pub').onclick = () => act('publish');

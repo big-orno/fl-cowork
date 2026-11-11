@@ -30,7 +30,7 @@ Dans l'application, le voyant « FL Studio connecté » passe au vert.
 ## Démarrer une session
 
 **Héberger**
-1. Choisir un projet `.flp`, ou laisser vide pour partir d'un projet neuf.
+1. Choisir un projet `.flp`, ou laisser vide pour partir d'un projet neuf et lui donner un nom.
 2. Cliquer sur **Créer la session**.
 3. Envoyer le code `FLC-…` aux autres participants.
 
@@ -43,26 +43,49 @@ Dans l'application, le voyant « FL Studio connecté » passe au vert.
 
 ## Ce qui se synchronise
 
-| En direct, pour tout le monde | À la publication, par le détenteur du stylo |
-|---|---|
-| Mixeur : volume, pan, mute, EQ, routages, noms, couleurs | Notes du piano roll |
-| Canaux : volume, pan, pitch, mute, piste cible, noms, couleurs | Clips de la playlist, automations |
-| Step sequencer | Ajout ou suppression de canaux, plugins, effets |
-| Paramètres des plugins (instruments et effets) | Nouveaux samples |
-| Tempo, noms et couleurs des patterns et pistes | |
-| Lecture / stop (en option) | |
+### En direct (quelques millisecondes, pour tout le monde, en même temps)
 
-### Le stylo ✏️
+- **Mixeur** : volume, pan, mute, solo, EQ, routages, noms, couleurs
+- **Canaux** : volume, pan, pitch, mute, piste cible, noms, couleurs
+- **Step sequencer** (les pas de chaque pattern)
+- **Paramètres des plugins**, instruments et effets (Serum 2 compris)
+- **Tempo**, noms et couleurs des patterns et des pistes
+- **Lecture / stop** (option)
 
-Une seule personne à la fois modifie la *structure* du projet (notes, clips, nouveaux instruments).
-C'est elle qui tient le stylo.
+### À la publication (Ctrl+S du détenteur du stylo)
 
-- Chaque **Ctrl+S** du détenteur publie une nouvelle version, que les autres chargent automatiquement.
-- Le stylo se demande et se donne d'un clic dans l'application.
-- Tout le reste (colonne de gauche) reste modifiable par tout le monde, en même temps.
+- **Notes du piano roll**
+- **Clips de la playlist** et automations
+- **Structure** : ajout ou suppression de canaux, de plugins, d'effets
+- **Nouveaux samples**
 
 Cette séparation vient de FL Studio : ses scripts n'ont accès ni aux notes ni aux clips. Ce qu'ils
 exposent est synchronisé en direct, le reste passe par le fichier projet.
+
+### Le stylo ✏️
+
+Une seule personne à la fois publie les versions du projet. C'est elle qui tient le stylo.
+
+- Chaque **Ctrl+S** du détenteur publie une nouvelle version.
+- Le stylo se demande et se donne d'un clic dans l'application.
+- Tout ce qui est « en direct » reste modifiable par tout le monde, en même temps.
+
+### Quand une nouvelle version arrive
+
+Elle se charge automatiquement, sans aucune question de FL Studio (ni « enregistrer les
+modifications ? », ni « projet d'une version plus récente »), même si vos versions de FL Studio
+diffèrent.
+
+Votre travail non publié n'est pas perdu : il est enregistré automatiquement, puis **combiné** à la
+nouvelle version :
+
+- vos notes du piano roll s'ajoutent à celles reçues ;
+- vos clips de playlist s'ajoutent aussi, et si l'un chevauche un clip existant, il est **décalé
+  sur la piste libre la plus proche** (vers le bas, sinon vers le haut) ;
+- si vous avez ajouté ou retiré des canaux ou des patterns, la combinaison n'est pas possible : votre
+  version est conservée dans le dossier `Sauvegardes` de la session, et l'application vous le dit.
+
+Vos ajouts restent chez vous jusqu'à ce que vous teniez le stylo et publiez.
 
 ## Samples
 

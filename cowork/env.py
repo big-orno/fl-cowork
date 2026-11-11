@@ -209,3 +209,87 @@ def message_box(text, warn=True):
     import threading
     threading.Thread(target=ctypes.windll.user32.MessageBoxW, daemon=True,
                      args=(None, text, APP, (0x30 if warn else 0x40) | 0x10000 | 0x40000)).start()
+
+
+_FL_VERSION = []
+
+
+def fl_version():
+    """Version de FL Studio installee, lue dans son modele de projet vide (« 25.1.5.4976 »)."""
+    if not _FL_VERSION:
+        v = ''
+        try:
+            from . import flp
+            t = empty_template()
+            if t:
+                with open(t, 'rb') as f:
+                    v = flp.version_of(f.read())
+        except Exception:
+            pass
+        _FL_VERSION.append(v)
+    return _FL_VERSION[0]
+
+
+def dismiss_dialogs(seconds=25):
+    """Repond tout seul aux questions de FL Studio apres l'ouverture d'un projet.
+
+    « Enregistrer les modifications ? » -> Non (la version locale est deja
+    sauvegardee a part) ; « projet d'une version plus recente » -> continuer.
+    """
+    import re
+    import threading
+    import time
+
+    u = ctypes.windll.user32
+
+    def text(h):
+        b = ctypes.create_unicode_buffer(256)
+        u.GetWindowTextW(h, b, 256)
+        return re.sub(r'[&.]', '', b.value).strip().lower()
+
+    def cls(h):
+        b = ctypes.create_unicode_buffer(64)
+        u.GetClassNameW(h, b, 64)
+        return b.value
+
+    EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def run():
+        end = time.time() + seconds
+        while time.time() < end:
+            main, tops = [], []
+
+            def top(h, _):
+                if u.IsWindowVisible(h):
+                    (main if cls(h) == 'TFruityLoopsMainForm' else tops).append(h)
+                return True
+            u.EnumWindows(EnumProc(top), 0)
+            if main:
+                pid = wintypes.DWORD()
+                u.GetWindowThreadProcessId(main[0], ctypes.byref(pid))
+                for h in tops:
+                    p = wintypes.DWORD()
+                    u.GetWindowThreadProcessId(h, ctypes.byref(p))
+                    if p.value != pid.value:
+                        continue
+                    btns = []
+
+                    def kid(c, _):
+                        if 'button' in cls(c).lower():
+                            btns.append((c, text(c)))
+                        return True
+                    u.EnumChildWindows(h, EnumProc(kid), 0)
+                    if not 2 <= len(btns) <= 4:
+                        continue
+                    pick = None
+                    for c, t in btns:
+                        if 'anyway' in t or 'quand même' in t or 'quand meme' in t:
+                            pick = c
+                    if pick is None:
+                        for c, t in btns:
+                            if re.match(r"^(no|non|don't save|do not save|ne pas enregistrer|discard)\b", t):
+                                pick = c
+                    if pick:
+                        u.PostMessageW(pick, 0x00F5, 0, 0)    # BM_CLICK
+            time.sleep(0.4)
+    threading.Thread(target=run, daemon=True).start()

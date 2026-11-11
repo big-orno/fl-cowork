@@ -419,12 +419,12 @@ class App:
             except Exception:
                 pass
 
-    async def host(self, src):
+    async def host(self, src, name=''):
         if self.sess:
             raise ValueError('Une session est déjà en cours.')
         if not src:
             src = env.empty_template()
-            stem = 'Cowork'
+            stem = safe_name(name.strip()) if name.strip() else 'Cowork'
         else:
             stem = os.path.splitext(os.path.basename(src))[0]
         if not src or not os.path.isfile(src):
@@ -690,6 +690,7 @@ class App:
             except OSError:
                 lost.append(name)
         mtime = os.stat(s.flp).st_mtime_ns
+        shutil.copyfile(s.flp, os.path.join(s.dir, '.base.flp'))   # reference des prochaines fusions
         files = []
         for name in sorted(os.listdir(s.dir)):
             path = os.path.join(s.dir, name)
@@ -775,6 +776,7 @@ class App:
         try:
             while self.sess is s and s.rev and s.file_n != s.rev['n'] and s.rev['author'] != s.id:
                 rev = s.rev
+                mine = await self.snapshot_local(s)
                 todo = []
                 for name, size, sha in rev['files']:
                     dst = os.path.join(s.dir, safe_name(name))
@@ -812,6 +814,7 @@ class App:
                         self.say('%d sample(s) reçu(s) et relié(s) au projet.' % n)
                     except (OSError, ValueError) as e:
                         self.say('Samples reçus mais non reliés au projet : %s' % e)
+                await loop.run_in_executor(None, self.finish_fetch, s, mine)
                 s.known_mtime = s.seen_mtime = os.stat(s.flp).st_mtime_ns
                 s.file_n = rev['n']
                 s.local_dirty = False
@@ -826,6 +829,61 @@ class App:
             s.fetching = False
             s.xfer = None
 
+    async def snapshot_local(self, s):
+        """Sauvegarde le travail en cours dans FL puis renvoie les octets du projet local
+        s'il differe de la derniere version connue (None sinon)."""
+        base = os.path.join(s.dir, '.base.flp')
+        if not s.file_n or not os.path.exists(base) or not os.path.exists(s.flp):
+            return None
+        if self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty'):
+            before = os.stat(s.flp).st_mtime_ns
+            self.ssend({'t': 'save'})
+            for _ in range(60):
+                await asyncio.sleep(0.1)
+                if os.stat(s.flp).st_mtime_ns != before:
+                    await asyncio.sleep(0.3)
+                    break
+
+        def read():
+            with open(s.flp, 'rb') as f, open(base, 'rb') as g:
+                mine, ref = f.read(), g.read()
+            if mine == ref:
+                return None
+            bk = os.path.join(s.dir, 'Sauvegardes')
+            os.makedirs(bk, exist_ok=True)
+            with open(os.path.join(bk, time.strftime('local-%Hh%Mm%S.flp')), 'wb') as f:
+                f.write(mine)
+            return mine
+        return await asyncio.get_running_loop().run_in_executor(None, read)
+
+    def finish_fetch(self, s, mine):
+        """(thread) Reference de fusion, fusion du travail local, version de FL."""
+        base = os.path.join(s.dir, '.base.flp')
+        with open(s.flp, 'rb') as f:
+            theirs = f.read()
+        data = theirs
+        if mine is not None:
+            with open(base, 'rb') as f:
+                ref = f.read()
+            data, r = flp.merge(ref, mine, theirs)
+            if r['ok']:
+                if r['notes'] or r['items']:
+                    msg = 'Votre travail local a été combiné : %d note(s), %d élément(s) de playlist' % (r['notes'], r['items'])
+                    if r['moved']:
+                        msg += ', dont %d décalé(s) sur une autre piste' % r['moved']
+                    self.say(msg + '.')
+            else:
+                self.say("Votre travail local n'a pas pu être combiné (%s). Il est conservé dans le dossier "
+                         "« Sauvegardes » de la session." % r['why'])
+        ver = env.fl_version()
+        if ver and flp._vtuple(flp.version_of(data)) > flp._vtuple(ver):
+            theirs = flp.set_version(theirs, ver)
+            data = flp.set_version(data, ver)
+        with open(base, 'wb') as f:
+            f.write(theirs)
+        with open(s.flp, 'wb') as f:
+            f.write(data)
+
     def open_in_fl(self):
         s = self.sess
         if not s or not s.flp or not os.path.exists(s.flp):
@@ -835,6 +893,7 @@ class App:
             return
         try:
             os.startfile(s.flp)
+            env.dismiss_dialogs()
         except OSError as e:
             self.say("Impossible d'ouvrir FL Studio : %s" % e)
 
@@ -931,7 +990,7 @@ class App:
         elif op == 'browse':
             return {'path': await loop.run_in_executor(None, env.pick_flp)}
         elif op == 'host':
-            await self.host(a.get('path') or '')
+            await self.host(a.get('path') or '', str(a.get('name') or ''))
         elif op == 'join':
             await self.join(a.get('code') or '')
         elif op == 'leave':
