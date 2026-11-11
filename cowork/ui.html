@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FL Cowork</title>
+<style>
+:root{--bg:#17191d;--panel:#20242a;--line:#2e343c;--txt:#e8eaed;--dim:#98a1ad;--acc:#ff8a3d;--ok:#6fdc8c;--warn:#ffcf5c;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 "Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0;flex:1;letter-spacing:.2px}
+header h1 b{color:var(--acc)}
+main{flex:1;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:0 0 10px}
+input[type=text]{width:100%;background:#14161a;border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 10px;font:inherit}
+input[type=text]:focus{outline:1px solid var(--acc);border-color:var(--acc)}
+button{background:#2b3038;border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 12px;font:inherit;cursor:pointer}
+button:hover{background:#343a44}
+button.pri{background:var(--acc);border-color:var(--acc);color:#1b1206;font-weight:600}
+button.pri:hover{filter:brightness(1.08)}
+button.sm{padding:4px 9px;font-size:12px}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;align-items:center}
+.row>.grow{flex:1;min-width:0}
+.dim{color:var(--dim)}.small{font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:3px 10px;font-size:12px;border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+.ok .dot{background:var(--ok)}.warn .dot{background:var(--warn)}.bad .dot{background:var(--bad)}
+.status{padding:10px 12px;border-radius:8px;border:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.status.ok{border-color:#2f6b41;background:#18261d}.status.warn{border-color:#6b5a26;background:#262212}
+.code{font-family:Consolas,monospace;font-size:12.5px;background:#14161a;border:1px solid var(--line);border-radius:7px;padding:7px 9px;word-break:break-all}
+.peer{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)}
+.peer:first-of-type{border-top:0}
+.av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#14161a;flex:none}
+.chat{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow:auto;margin-bottom:8px}
+.chat .sys{color:var(--dim);font-size:12px}
+.step{display:flex;gap:9px;align-items:flex-start;padding:4px 0}
+.step .dot{margin-top:6px}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+label.tg{display:flex;gap:8px;align-items:center;cursor:pointer;padding:3px 0}
+.bar{height:5px;background:#14161a;border-radius:9px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--acc)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1><b>FL</b> Cowork</h1>
+  <span id="flpill" class="pill"><span class="dot"></span><span id="fltxt">FL Studio</span></span>
+</header>
+<main>
+  <div id="err" class="err hidden"></div>
+
+  <section id="lobby" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card">
+      <h2>Votre nom</h2>
+      <input type="text" id="name" maxlength="32">
+    </div>
+    <div class="card" id="setup">
+      <h2>Mise en route</h2>
+      <div class="step" id="st-script"><span class="dot"></span><div>Script FL Studio installé</div></div>
+      <div class="step" id="st-midi"><span class="dot"></span><div>Port MIDI virtuel « FL Cowork »</div></div>
+      <div class="step" id="st-fl"><span class="dot"></span><div>FL Studio connecté
+        <div class="dim small" id="st-fl-help">Dans FL Studio : Options › MIDI settings › Input › « FL Cowork » › Controller type « FL Cowork » › Enable.</div></div></div>
+      <button id="fix" class="sm hidden" style="margin-top:8px">Réparer l'installation</button>
+    </div>
+    <div class="card">
+      <h2>Héberger une session</h2>
+      <div class="row"><input class="grow" type="text" id="path" placeholder="Projet .flp (vide = nouveau projet)"><button id="browse">Parcourir…</button></div>
+      <div class="dim small" style="margin:8px 0">Le projet est copié dans Documents\FL Cowork avec ses samples, puis partagé.</div>
+      <button class="pri" id="host">Créer la session</button>
+    </div>
+    <div class="card">
+      <h2>Rejoindre une session</h2>
+      <div class="row"><input class="grow" type="text" id="code" placeholder="FLC-XXXXX-XXXXX-…"><button class="pri" id="join">Rejoindre</button></div>
+    </div>
+  </section>
+
+  <section id="sess" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+    <div id="live" class="status"><span class="dot"></span><div class="grow"><b id="livet"></b><div class="dim small" id="lives"></div></div><button class="sm" id="reload">Charger</button></div>
+    <div class="card" id="xfer"><div id="xfert"></div><div class="bar"><i id="xferb"></i></div></div>
+    <div class="card" id="codes">
+      <h2>Inviter</h2>
+      <div class="dim small">Même réseau (ou VPN type Tailscale)</div>
+      <div class="row" style="margin:4px 0 8px"><div class="code grow" id="clan"></div><button class="sm" data-copy="clan">Copier</button></div>
+      <div id="wanbox"><div class="dim small">Internet</div>
+      <div class="row" style="margin-top:4px"><div class="code grow" id="cwan"></div><button class="sm" data-copy="cwan">Copier</button></div></div>
+      <div id="nowan" class="dim small">Internet : ouverture automatique du port impossible. Redirigez le port TCP <b id="port"></b> sur votre box, puis générez un code avec votre IP publique (ou IP VPN) :
+        <div class="row" style="margin-top:6px"><input class="grow" type="text" id="ip" placeholder="Adresse IP"><button class="sm" id="gen">Générer</button></div>
+        <div class="row hidden" id="cgenrow" style="margin-top:6px"><div class="code grow" id="cgen"></div><button class="sm" data-copy="cgen">Copier</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="ptitle">Participants</h2>
+      <div id="peers"></div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap">
+        <button id="pub" class="pri">Publier ma version</button>
+        <button id="ask">Demander le stylo</button>
+        <button id="folder">Dossier</button>
+      </div>
+      <div class="dim small" id="penhelp" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>Options</h2>
+      <label class="tg"><input type="checkbox" id="autoload"> Charger automatiquement les nouvelles versions</label>
+      <label class="tg"><input type="checkbox" id="follow"> Synchroniser lecture / stop entre participants</label>
+    </div>
+    <div class="card">
+      <h2>Discussion</h2>
+      <div class="chat" id="chat"></div>
+      <div class="row"><input class="grow" type="text" id="msg" placeholder="Message…"><button id="send">Envoyer</button></div>
+    </div>
+    <button id="leave">Quitter la session</button>
+  </section>
+</main>
+<script>
+const T = new URLSearchParams(location.search).get('t');
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let st = null, chatN = -1, errT = 0;
+async function act(op, extra) {
+  const r = await fetch('/api/act', {method:'POST', headers:{'X-Token':T}, body:JSON.stringify(Object.assign({op}, extra||{}))});
+  const j = await r.json();
+  if (!j.ok) showErr(j.error);
+  poll();
+  return j;
+}
+function showErr(t){ const e=$('err'); e.textContent=t||''; e.classList.toggle('hidden',!t); errT=Date.now(); }
+function setDot(el, cls){ el.classList.remove('ok','warn','bad'); if(cls) el.classList.add(cls); }
+function render(s) {
+  st = s;
+  setDot($('flpill'), s.fl ? 'ok' : 'bad');
+  $('fltxt').textContent = s.fl ? 'FL Studio connecté' : 'FL Studio déconnecté';
+  if (s.notice && Date.now()-errT > 4000) showErr(s.notice);
+  const S = s.session;
+  $('lobby').classList.toggle('hidden', !!S);
+  $('sess').classList.toggle('hidden', !S);
+  if (!S) {
+    if (document.activeElement !== $('name')) $('name').value = s.name;
+    setDot($('st-script'), s.env.script ? 'ok' : 'bad');
+    setDot($('st-midi'), s.env.midi ? 'ok' : 'bad');
+    setDot($('st-fl'), s.fl ? 'ok' : 'warn');
+    $('st-fl-help').classList.toggle('hidden', s.fl);
+    $('fix').classList.toggle('hidden', s.env.script && s.env.midi);
+    $('setup').classList.toggle('hidden', s.env.script && s.env.midi && s.fl);
+    chatN = -1;
+    return;
+  }
+  const live = $('live');
+  live.className = 'status ' + (S.live ? 'ok' : 'warn');
+  $('livet').textContent = S.live ? 'Synchro temps réel active' : S.why;
+  $('lives').textContent = (S.project||'') + (S.rev ? ' · version ' + S.rev.n + (S.rev.author ? ' (' + S.rev.author + ')' : '') : '')
+    + (S.local_dirty ? ' · enregistrement local non partagé' : '') + (S.muted ? ' · ' + S.muted + ' paramètre(s) automatisé(s) ignoré(s)' : '')
+    + (S.diffs && S.diffs.length ? ' · plugins non synchronisés : ' + S.diffs.join(', ') : '');
+  const needLoad = S.rev && (S.local_n !== S.rev.n || /Ouvrez|Structure diff/.test(S.why));
+  $('reload').classList.toggle('hidden', !needLoad);
+  $('xfer').classList.toggle('hidden', !S.xfer);
+  if (S.xfer) { $('xfert').textContent = S.xfer.label + ' des fichiers du projet…'; $('xferb').style.width = Math.min(100, 100*S.xfer.done/Math.max(1,S.xfer.total)) + '%'; }
+  $('codes').classList.toggle('hidden', S.role !== 'host');
+  if (S.role === 'host') {
+    $('clan').textContent = S.codes.lan || '';
+    $('wanbox').classList.toggle('hidden', !S.codes.wan);
+    $('nowan').classList.toggle('hidden', !!S.codes.wan);
+    $('cwan').textContent = S.codes.wan || '';
+    $('port').textContent = S.port;
+  }
+  $('ptitle').textContent = 'Participants (' + S.peers.length + ')';
+  $('peers').innerHTML = S.peers.map(p => `<div class="peer"><div class="av" style="background:${esc(p.color)}">${esc(p.name[0]||'?').toUpperCase()}</div>
+    <div class="grow"><div>${esc(p.name)}${p.me?' <span class="dim">(vous)</span>':''}${p.holder?' ✏️':''}</div>
+    <div class="dim small">${p.live?'en direct':(p.fl?'FL ouvert, pas synchronisé':'FL fermé')}${p.where?' · '+esc(p.where):''}${p.play?' · ▶':''}</div></div>
+    ${S.holder && !p.me ? `<button class="sm ${p.asks?'pri':''}" data-give="${p.id}">${p.asks?'Demande le stylo — donner':'Donner le stylo'}</button>`:''}</div>`).join('');
+  $('pub').classList.toggle('hidden', !S.holder);
+  $('ask').classList.toggle('hidden', S.holder);
+  $('penhelp').textContent = S.holder
+    ? 'Vous avez le stylo ✏️ : vos enregistrements (Ctrl+S) sont publiés à tous — notes, clips, nouveaux plugins et samples compris.'
+    : 'Mixeur, canaux, step sequencer, paramètres de plugins et tempo sont synchronisés en direct. Pour ajouter notes, clips ou plugins, demandez le stylo.';
+  if (document.activeElement !== $('autoload')) $('autoload').checked = s.autoload;
+  if (document.activeElement !== $('follow')) $('follow').checked = s.follow;
+  if (S.chat.length !== chatN || (S.chat.length && S.chat[S.chat.length-1].time !== render.lastT)) {
+    chatN = S.chat.length; render.lastT = S.chat.length ? S.chat[S.chat.length-1].time : 0;
+    const c = $('chat');
+    c.innerHTML = S.chat.map(m => m.sys ? `<div class="sys">${esc(m.text)}</div>` : `<div><b style="color:${esc(m.color)}">${esc(m.name)}</b> ${esc(m.text)}</div>`).join('');
+    c.scrollTop = c.scrollHeight;
+  }
+}
+async function poll(){ try { const r = await fetch('/api/state', {headers:{'X-Token':T}}); render(await r.json()); } catch(e) { $('fltxt').textContent='Application fermée'; setDot($('flpill'),'bad'); } }
+setInterval(poll, 700); poll();
+$('name').addEventListener('change', e => act('name', {value:e.target.value}));
+$('browse').onclick = async () => { const j = await act('browse'); if (j.path) $('path').value = j.path; };
+$('host').onclick = async e => { e.target.disabled = true; showErr(''); await act('host', {path:$('path').value.trim()}); e.target.disabled = false; };
+$('join').onclick = async e => { e.target.disabled = true; showErr(''); await act('join', {code:$('code').value.trim()}); e.target.disabled = false; };
+$('leave').onclick = () => { if (confirm('Quitter la session ?')) act('leave'); };
+$('pub').onclick = () => act('publish');
+$('ask').onclick = () => act('baton_req');
+$('folder').onclick = () => act('folder');
+$('reload').onclick = () => act('reload');
+$('fix').onclick = () => act('setup');
+$('autoload').onchange = e => act('set', {key:'autoload', value:e.target.checked});
+$('follow').onchange = e => act('set', {key:'follow', value:e.target.checked});
+$('gen').onclick = async () => { const j = await act('code', {ip:$('ip').value}); if (j.code) { $('cgen').textContent = j.code; $('cgenrow').classList.remove('hidden'); } };
+const send = () => { const m = $('msg'); if (m.value.trim()) act('chat', {text:m.value}); m.value=''; };
+$('send').onclick = send;
+$('msg').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter') $('join').click(); });
+document.addEventListener('click', e => {
+  const c = e.target.dataset.copy, g = e.target.dataset.give;
+  if (c) { navigator.clipboard.writeText($(c).textContent); e.target.textContent = 'Copié'; setTimeout(() => e.target.textContent = 'Copier', 1200); }
+  if (g) act('baton_give', {to:+g});
+});
+</script>
+</body>
+</html>

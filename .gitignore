@@ -1,0 +1,6 @@
+.build-venv/
+build/
+dist/*
+!dist/FLCoworkSetup.exe
+__pycache__/
+*.pyc
