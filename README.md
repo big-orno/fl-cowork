@@ -15,7 +15,8 @@ participants, et le projet (avec ses samples) se partage d'un clic.
 
 À faire par chaque participant.
 
-1. Télécharger le dépôt (bouton **Code › Download ZIP**) et lancer `dist\FLCoworkSetup.exe`.
+1. Télécharger `FLCoworkSetup.exe` depuis la
+   [dernière release](https://github.com/big-orno/fl-cowork/releases/latest) et le lancer.
 2. Accepter la demande de droits administrateur : elle sert à créer un port MIDI virtuel, par lequel
    FL Studio et l'application communiquent.
 3. Dans FL Studio, une seule fois : **Options › MIDI settings › Input**, cliquer sur « FL Cowork »,
