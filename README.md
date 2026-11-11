@@ -1,9 +1,9 @@
 # FL Cowork
 
-Produire à plusieurs, en même temps, sur le même projet FL Studio.
+Produire à plusieurs sur le même projet FL Studio.
 
-Chacun travaille dans son propre FL Studio. Les réglages se synchronisent en direct entre les
-participants, et le projet (avec ses samples) se partage d'un clic.
+Chacun travaille dans son propre FL Studio. À chaque Ctrl+S, le projet complet (avec ses samples) part
+chez les autres et se fusionne avec leur travail.
 
 ## Prérequis
 
@@ -41,55 +41,39 @@ Dans l'application, le voyant « FL Studio connecté » passe au vert.
 > Le code de session donne accès à la session : ne l'envoyez qu'aux personnes invitées, pas dans un
 > salon public.
 
-## Ce qui se synchronise
+## Comment ça marche
 
-### En direct (quelques millisecondes, pour tout le monde, en même temps)
+Chacun travaille dans son FL Studio, sans rien changer à ses habitudes. À **chaque Ctrl+S** :
 
-- **Mixeur** : volume, pan, mute, solo, EQ, routages, noms, couleurs
-- **Canaux** : volume, pan, pitch, mute, piste cible, noms, couleurs
-- **Step sequencer** (les pas de chaque pattern)
-- **Paramètres des plugins**, instruments et effets (Serum 2 compris)
-- **Tempo**, noms et couleurs des patterns et des pistes
-- **Lecture / stop** (option)
+1. le projet complet est envoyé aux autres : notes, clips, automations, plugins et leurs réglages
+   (Serum 2 compris), mixeur, tempo, et les samples qui manquent chez eux ;
+2. chez chacun, la nouvelle version se charge toute seule, sans aucune question de FL Studio
+   (ni « enregistrer les modifications ? », ni « projet d'une version plus récente »), même si vos
+   versions de FL Studio diffèrent ;
+3. **n'importe qui peut enregistrer, à tout moment** : il n'y a pas de tour de rôle.
 
-### À la publication (Ctrl+S du détenteur du stylo)
+Rien n'est synchronisé « en direct » pendant que vous jouez ou réglez : c'est l'enregistrement qui
+déclenche l'envoi.
 
-- **Notes du piano roll**
-- **Clips de la playlist** et automations
-- **Structure** : ajout ou suppression de canaux, de plugins, d'effets
-- **Nouveaux samples**
+### Quand vous avez travaillé de votre côté
 
-Cette séparation vient de FL Studio : ses scripts n'ont accès ni aux notes ni aux clips. Ce qu'ils
-exposent est synchronisé en direct, le reste passe par le fichier projet.
+Si une version arrive alors que vous avez des modifications que vous n'avez pas encore envoyées, elles
+sont enregistrées puis **fusionnées** avec la version reçue, puis le résultat est renvoyé aux autres :
 
-### Le stylo ✏️
-
-Une seule personne à la fois publie les versions du projet. C'est elle qui tient le stylo.
-
-- Chaque **Ctrl+S** du détenteur publie une nouvelle version.
-- Le stylo se demande et se donne d'un clic dans l'application.
-- Tout ce qui est « en direct » reste modifiable par tout le monde, en même temps.
-
-### Quand une nouvelle version arrive
-
-Elle se charge automatiquement, sans aucune question de FL Studio (ni « enregistrer les
-modifications ? », ni « projet d'une version plus récente »), même si vos versions de FL Studio
-diffèrent.
-
-Votre travail non publié n'est pas perdu : il est enregistré automatiquement, puis **combiné** à la
-nouvelle version :
-
-- vos notes du piano roll s'ajoutent à celles reçues ;
-- vos clips de playlist s'ajoutent aussi, et si l'un chevauche un clip existant, il est **décalé
+- ce que vous seul avez changé est gardé, ce que l'autre seul a changé aussi ;
+- les notes du piano roll des deux côtés sont réunies ;
+- les clips de la playlist des deux côtés sont réunis, et un clip qui chevauche un autre est **décalé
   sur la piste libre la plus proche** (vers le bas, sinon vers le haut) ;
-- si vous avez ajouté ou retiré des canaux ou des patterns, la combinaison n'est pas possible : votre
-  version est conservée dans le dossier `Sauvegardes` de la session, et l'application vous le dit.
+- les ajouts de canaux, de patterns et de plugins faits d'un côté et de l'autre sont gardés ;
+- si le même réglage a été modifié des deux côtés, **la valeur de celui qui enregistre** est gardée,
+  et l'application le dit dans la discussion.
 
-Vos ajouts restent chez vous jusqu'à ce que vous teniez le stylo et publiez.
+Une copie de votre version d'avant la fusion est conservée dans le dossier `Sauvegardes` de la
+session.
 
 ## Samples
 
-Les samples personnels utilisés dans le projet sont envoyés automatiquement à chaque publication, et
+Les samples personnels utilisés dans le projet sont envoyés automatiquement à chaque enregistrement, et
 reliés au projet chez les autres. Un sample se charge donc même s'il n'a jamais existé sur leur
 machine. Les samples fournis avec FL Studio ne sont pas transférés, puisque tout le monde les a.
 
@@ -99,15 +83,6 @@ Si le projet utilise un plugin qu'un participant n'a pas :
 
 - une boîte de dialogue le lui indique, et les autres sont prévenus dans la discussion ;
 - la session continue normalement ;
-- seuls les réglages de ce plugin ne sont pas synchronisés chez lui.
-
-## Serum 2 et autres VST
-
-Tous les réglages qu'un plugin expose à FL Studio sont synchronisés en direct. Un changement de preset
-est détecté : les réglages suivent tout de suite et les autres participants sont prévenus.
-
-Le contenu interne d'un preset qui n'est pas un réglage (tables d'ondes, samples internes, matrice de
-modulation) arrive à la publication suivante : Ctrl+S du détenteur du stylo.
 
 ## Réseau
 
@@ -123,7 +98,6 @@ modulation) arrive à la publication suivante : Ctrl+S du détenteur du stylo.
 | « FL Studio déconnecté » | L'étape 3 de l'installation, puis redémarrer FL Studio |
 | Pas de port « FL Cowork » dans FL | Relancer l'installateur, ou cliquer sur « Réparer l'installation » |
 | « Nouvelle version à charger » | Cliquer sur **Charger** dans l'application |
-| « Structure différente » | Un canal a été ajouté sans le stylo : recharger la version, ou demander le stylo |
 | Erreur du script | Dans FL Studio : **View › Script output**, onglet « FL Cowork » |
 
 ## Limites connues

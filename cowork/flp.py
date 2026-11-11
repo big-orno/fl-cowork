@@ -265,62 +265,100 @@ def set_version(data, version):
     return _build(_head(data), evs)
 
 
-def merge(base, mine, theirs):
-    """Fusionne les modifications locales (mine, par rapport a base) dans la version recue (theirs).
+def _merge_blob(eid, b, m, t, rep):
+    """Fusion du contenu d'un evenement de notes (224) ou de playlist (233)."""
+    size = NOTE_SIZE if eid == NOTES else ITEM_SIZE
+    out, new = _merge_lists(_chunks(b, size), _chunks(m, size), _chunks(t, size))
+    if eid == NOTES:
+        rep['notes'] += len(new)
+        return b''.join(out + new)
+    new = [x for x in new if x not in out]
+    placed, moved = _spread(out, new)
+    rep['items'] += len(new)
+    rep['moved'] += moved
+    return b''.join(out + placed)
 
-    Notes du piano roll et elements de la playlist sont combines ; un element de
-    playlist qui en chevauche un autre est decale sur une piste libre. Si la
-    structure (canaux, motifs) a change en local, rien n'est fusionne.
-    Renvoie (octets, rapport) ; rapport = {'ok', 'notes', 'items', 'moved', 'why'}.
+
+def _resolve(bs, ms, ts, rep):
+    """Zone modifiee des deux cotes : renvoie la liste d'evenements retenue."""
+    if ms == ts:
+        return ts
+    if not bs and not any(e in (NEW_CHAN, NEW_PAT) for e, _ in ms + ts):
+        return ts + ms                      # ajouts independants au meme endroit : on garde tout
+    if len(bs) == len(ms) == len(ts) and all(b[0] == m[0] == t[0] for b, m, t in zip(bs, ms, ts)):
+        out = []
+        for b, m, t in zip(bs, ms, ts):
+            if m == t:
+                out.append(t)
+            elif m == b:
+                out.append(t)
+            elif t == b:
+                out.append(m)
+            elif b[0] in (NOTES, PLAYLIST):
+                out.append((b[0], _merge_blob(b[0], b[1], m[1], t[1], rep)))
+            else:
+                out.append(m)
+                rep['conflicts'] += 1
+        return out
+    rep['conflicts'] += 1
+    return ms                                # la version de celui qui enregistre l'emporte
+
+
+def merge(base, mine, theirs):
+    """Fusion a trois voies de deux versions d'un projet ayant une origine commune.
+
+    Les modifications locales (mine, par rapport a base) sont reportees sur la version
+    recue (theirs) : ce qui n'a ete touche que d'un cote est repris tel quel, notes et
+    playlist touchees des deux cotes sont combinees (un clip qui en chevauche un autre
+    est decale sur une piste libre), le reste en conflit prend la valeur locale.
+    Renvoie (octets, rapport) ; rapport : ok, changed, notes, items, moved, conflicts, why.
     """
-    rep = {'ok': False, 'notes': 0, 'items': 0, 'moved': 0, 'why': ''}
+    import difflib
+    rep = {'ok': False, 'changed': False, 'notes': 0, 'items': 0, 'moved': 0, 'conflicts': 0, 'why': ''}
     try:
         eb, em, et = list(events(base)), list(events(mine)), list(events(theirs))
     except (ValueError, IndexError):
         rep['why'] = 'fichier illisible'
         return theirs, rep
-    nb, ib, pb, cb = _scan(eb)
-    nm, im, pm, cm = _scan(em)
-    nt, it, pt, ct = _scan(et)
-    if pm != pb or cm != cb:
-        rep['why'] = 'structure modifiée en local (canaux ou motifs ajoutés/retirés)'
-        return theirs, rep
-    if pt != pb or ct != cb:
-        rep['why'] = "structure modifiée dans la nouvelle version"
-        return theirs, rep
-    merged_notes = {}
-    for p in pm:
-        out, new = _merge_lists(nb.get(p, []), nm.get(p, []), nt.get(p, []))
-        if new or len(out) != len(nt.get(p, [])):
-            merged_notes[p] = out + new
-            rep['notes'] += len(new)
-    out_items, new_items = _merge_lists(ib, im, it)
-    new_items = [x for x in new_items if x not in out_items]   # deja present (meme element des deux cotes)
-    placed, moved = _spread(out_items, new_items)
-    rep['items'], rep['moved'] = len(new_items), moved
-    final_items = out_items + placed
-    if not merged_notes and not new_items and len(out_items) == len(it):
+    if em == eb:
         rep['ok'] = True
         return theirs, rep
-    res, cur, wrote, pl_done = [], None, set(), False
-    for e, r in et:
-        if e == NEW_PAT:
-            cur = struct.unpack('<H', r[:2])[0]
-            res.append((e, r))
-            if cur in merged_notes and cur not in wrote and cur not in nt:
-                wrote.add(cur)
-                res.append((NOTES, b''.join(merged_notes[cur])))
-            continue
-        if e == NOTES and cur in merged_notes:
-            if cur not in wrote:
-                wrote.add(cur)
-                res.append((e, b''.join(merged_notes[cur])))
-            continue
-        if e == PLAYLIST:
-            if not pl_done:
-                pl_done = True
-                res.append((e, b''.join(final_items)))
-            continue
-        res.append((e, r))
+    hunks = []
+    for side, ev in (('m', em), ('t', et)):
+        sm = difflib.SequenceMatcher(None, eb, ev, autojunk=False)
+        hunks += [(i1, i2, side, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
+    hunks.sort(key=lambda h: (h[0], h[1], h[2]))
+    groups = []
+    for h in hunks:
+        g = groups[-1] if groups else None
+        if g and (h[0] < g['hi'] or (h[0] == g['hi'] and (g['lo'] == g['hi'] or h[0] == h[1]) and g['lo'] == g['hi'])):
+            g['hunks'].append(h)
+            g['hi'] = max(g['hi'], h[1])
+        else:
+            groups.append({'lo': h[0], 'hi': h[1], 'hunks': [h]})
+    src = {'m': em, 't': et}
+
+    def seg(g, side):
+        out, pos = [], g['lo']
+        for i1, i2, sd, j1, j2 in g['hunks']:
+            if sd != side:
+                continue
+            out += eb[pos:i1] + src[side][j1:j2]
+            pos = i2
+        return out + eb[pos:g['hi']]
+    res, pos = [], 0
+    for g in groups:
+        res += eb[pos:g['lo']]
+        pos = g['hi']
+        sides = {h[2] for h in g['hunks']}
+        if len(sides) == 1:
+            res += seg(g, sides.pop())
+        else:
+            res += _resolve(eb[g['lo']:g['hi']], seg(g, 'm'), seg(g, 't'), rep)
+    res += eb[pos:]
+    # les hunks d'un meme cote sont traites dans l'ordre de la base : on a bien reconstruit « base + m + t »
     rep['ok'] = True
+    if res == et:
+        return theirs, rep
+    rep['changed'] = True
     return _build(_head(theirs), res), rep

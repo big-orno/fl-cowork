@@ -165,10 +165,10 @@ class Hub:
                 self.rev['sig'] = msg.get('sig')
                 self.cast({'t': 'rev', 'rev': self.rev})
         elif t == 'publish':
-            if peer.id != self.baton:
-                self.send(peer, {'t': 'error', 'msg': 'Seul le détenteur du stylo peut publier.'})
-                return
             man = msg['manifest']
+            if man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
+                self.send(peer, {'t': 'stale'})      # une version plus recente existe : fusionner d'abord
+                return
             self.pending[peer.id] = man
             need = sorted({f[2] for f in man['files'] if not os.path.exists(self.blob(f[2]))})
             if need:
@@ -182,7 +182,10 @@ class Hub:
 
     def commit(self, peer):
         man = self.pending.pop(peer.id, None)
-        if not man or peer.id != self.baton:
+        if not man:
+            return
+        if man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
+            self.send(peer, {'t': 'stale'})
             return
         n = (self.rev['n'] if self.rev else 0) + 1
         self.rev = {'n': n, 'author': peer.id, 'author_name': peer.name, 'time': time.time(),

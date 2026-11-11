@@ -98,7 +98,7 @@ label.tg{display:flex;gap:8px;align-items:center;cursor:pointer;padding:3px 0}
       <h2 id="ptitle">Participants</h2>
       <div id="peers"></div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap">
-        <button id="pub" class="pri">Publier ma version</button>
+        <button id="pub" class="pri">Envoyer ma version (Ctrl+S)</button>
         <button id="ask">Demander le stylo</button>
         <button id="folder">Dossier</button>
       </div>
@@ -152,7 +152,7 @@ function render(s) {
   }
   const live = $('live');
   live.className = 'status ' + (S.live ? 'ok' : 'warn');
-  $('livet').textContent = S.live ? 'Synchro temps réel active' : S.why;
+  $('livet').textContent = S.live ? 'Prêt : Ctrl+S dans FL envoie votre version aux autres' : S.why;
   $('lives').textContent = (S.project||'') + (S.rev ? ' · version ' + S.rev.n + (S.rev.author ? ' (' + S.rev.author + ')' : '') : '')
     + (S.local_dirty ? ' · enregistrement local non partagé' : '') + (S.muted ? ' · ' + S.muted + ' paramètre(s) automatisé(s) ignoré(s)' : '')
     + (S.diffs && S.diffs.length ? ' · plugins non synchronisés : ' + S.diffs.join(', ') : '');
@@ -172,14 +172,12 @@ function render(s) {
   }
   $('ptitle').textContent = 'Participants (' + S.peers.length + ')';
   $('peers').innerHTML = S.peers.map(p => `<div class="peer"><div class="av" style="background:${esc(p.color)}">${esc(p.name[0]||'?').toUpperCase()}</div>
-    <div class="grow"><div>${esc(p.name)}${p.me?' <span class="dim">(vous)</span>':''}${p.holder?' ✏️':''}</div>
-    <div class="dim small">${p.live?'en direct':(p.fl?'FL ouvert, pas synchronisé':'FL fermé')}${p.where?' · '+esc(p.where):''}${p.play?' · ▶':''}</div></div>
-    ${S.holder && !p.me ? `<button class="sm ${p.asks?'pri':''}" data-give="${p.id}">${p.asks?'Demande le stylo — donner':'Donner le stylo'}</button>`:''}</div>`).join('');
-  $('pub').classList.toggle('hidden', !S.holder);
-  $('ask').classList.toggle('hidden', S.holder);
-  $('penhelp').textContent = S.holder
-    ? 'Vous avez le stylo ✏️ : vos enregistrements (Ctrl+S) sont publiés à tous — notes, clips, nouveaux plugins et samples compris.'
-    : 'Mixeur, canaux, step sequencer, paramètres de plugins et tempo sont synchronisés en direct. Pour ajouter notes, clips ou plugins, demandez le stylo.';
+    <div class="grow"><div>${esc(p.name)}${p.me?' <span class="dim">(vous)</span>':''}</div>
+    <div class="dim small">${p.fl?'FL ouvert':'FL fermé'}${p.where?' · '+esc(p.where):''}${p.play?' · ▶':''}</div></div>
+    </div>`).join('');
+  $('ask').classList.add('hidden');
+  $('follow').closest('label').classList.add('hidden');
+  $('penhelp').textContent = "Chacun travaille de son côté. À chaque Ctrl+S, tout le projet (notes, clips, plugins, réglages, samples) est envoyé aux autres et fusionné avec ce qu'ils ont fait.";
   if (document.activeElement !== $('autoload')) $('autoload').checked = s.autoload;
   if (document.activeElement !== $('follow')) $('follow').checked = s.follow;
   if (S.chat.length !== chatN || (S.chat.length && S.chat[S.chat.length-1].time !== render.lastT)) {

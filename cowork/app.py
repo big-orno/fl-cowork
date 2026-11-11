@@ -268,6 +268,7 @@ class App:
     def sync_fp(self):
         """Le detenteur du stylo fait reference pour la structure du projet."""
         s = self.sess
+        return      # synchro en direct retiree : la structure voyage avec le projet
         if not (s and s.rev and s.baton == s.id and self.sc['fp'] and s.local_n == s.rev['n']
                 and self.title_ok() and self.sc['fp'] != s.rev.get('fp')):
             return
@@ -293,28 +294,15 @@ class App:
             why = 'Nouvelle version du projet à charger'
         elif not self.title_ok():
             why = 'Ouvrez le projet de la session dans FL Studio'
-        elif self.sc['fp'] is None:
-            why = 'Analyse du projet...'
         skip = []
         s.diffs = []
-        if not why and s.rev.get('fp') and self.sc['fp'] != s.rev['fp']:
-            same_shape, skip, lacking, s.diffs = self.plugin_diff(s.rev.get('sig'), self.sc.get('sig'))
-            if not same_shape:
-                why = ('Structure modifiée : enregistrez (Ctrl+S) pour publier' if s.baton == s.id
-                       else 'Structure différente du projet partagé : rechargez la version')
-            elif lacking and s.baton != s.id:
-                self.warn_plugins(lacking, loaded=True)
         live = not why
         was = s.live
         s.live, s.why = live, why
-        cfg = (live, bool(self.cfg.get('follow')), tuple(skip))
+        cfg = (False, False, ())      # le script n'echange plus rien en direct
         if self.script and cfg != self.sent_cfg:
             self.sent_cfg = cfg
-            self.ssend({'t': 'cfg', 'live': live, 'follow': cfg[1], 'skip': skip})
-            if live and not was:
-                o = [[k, v] for k, v in s.hubops.items() if k not in s.muted]
-                for i in range(0, len(o), 500):
-                    self.ssend({'t': 'ops', 'o': o[i:i + 500]})
+            self.ssend({'t': 'cfg', 'live': False, 'follow': False, 'skip': []})
         if live != was:
             self.send_pres()
 
@@ -579,6 +567,9 @@ class App:
             s.tasks.append(asyncio.ensure_future(self.upload(s, msg['shas'])))
         elif t == 'blob':
             self.on_blob(s, msg, data)
+        elif t == 'stale':
+            if not s.fetching and s.rev and s.file_n != s.rev['n'] and s.rev.get('author') != s.id:
+                s.tasks.append(asyncio.ensure_future(self.fetch(s)))
         elif t == 'error':
             self.say(msg.get('msg', 'Erreur'))
 
@@ -706,7 +697,12 @@ class App:
 
     async def publish(self):
         s = self.sess
-        if not s or s.publishing or s.baton != s.id or not s.flp:
+        if not s or s.publishing or not s.flp:
+            return
+        if s.rev and s.file_n != s.rev['n'] and s.rev.get('author') != s.id:
+            # une version plus recente existe : on la recoit et on y fusionne ce travail, puis on publie
+            if not s.fetching:
+                s.tasks.append(asyncio.ensure_future(self.fetch(s)))
             return
         s.publishing = True
         try:
@@ -717,7 +713,7 @@ class App:
                 self.say('Sample(s) introuvable(s) sur votre disque, non partagé(s) : %s' % ', '.join(lost))
             s.lost = tuple(lost)
             self.hsend({'t': 'publish', 'manifest': {
-                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp,
+                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp, 'parent': s.file_n,
                 'sig': self.sc.get('sig') if fp else None, 'samples': samples}})
         except Exception as e:
             self.say('Publication impossible : %s' % e)
@@ -814,13 +810,15 @@ class App:
                         self.say('%d sample(s) reçu(s) et relié(s) au projet.' % n)
                     except (OSError, ValueError) as e:
                         self.say('Samples reçus mais non reliés au projet : %s' % e)
-                await loop.run_in_executor(None, self.finish_fetch, s, mine)
+                changed = await loop.run_in_executor(None, self.finish_fetch, s, mine)
                 s.known_mtime = s.seen_mtime = os.stat(s.flp).st_mtime_ns
                 s.file_n = rev['n']
                 s.local_dirty = False
                 if self.cfg.get('autoload') or s.local_n == 0:
                     self.open_in_fl()
                 self.update_live()
+                if changed:
+                    await self.publish()      # le travail local fusionne repart chez les autres
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -862,18 +860,23 @@ class App:
         with open(s.flp, 'rb') as f:
             theirs = f.read()
         data = theirs
+        changed = False
         if mine is not None:
             with open(base, 'rb') as f:
                 ref = f.read()
             data, r = flp.merge(ref, mine, theirs)
             if r['ok']:
-                if r['notes'] or r['items']:
-                    msg = 'Votre travail local a été combiné : %d note(s), %d élément(s) de playlist' % (r['notes'], r['items'])
-                    if r['moved']:
-                        msg += ', dont %d décalé(s) sur une autre piste' % r['moved']
+                changed = r['changed']
+                if changed:
+                    msg = 'Votre travail local a été fusionné avec la nouvelle version'
+                    if r['notes'] or r['items']:
+                        msg += ' (%d note(s), %d clip(s) de playlist' % (r['notes'], r['items'])
+                        msg += ', dont %d décalé(s) sur une autre piste)' % r['moved'] if r['moved'] else ')'
+                    if r['conflicts']:
+                        msg += ' ; %d réglage(s) modifié(s) des deux côtés : le vôtre a été gardé' % r['conflicts']
                     self.say(msg + '.')
             else:
-                self.say("Votre travail local n'a pas pu être combiné (%s). Il est conservé dans le dossier "
+                self.say("Votre travail local n'a pas pu être fusionné (%s) ; copie dans le dossier "
                          "« Sauvegardes » de la session." % r['why'])
         ver = env.fl_version()
         if ver and flp._vtuple(flp.version_of(data)) > flp._vtuple(ver):
@@ -883,6 +886,7 @@ class App:
             f.write(theirs)
         with open(s.flp, 'wb') as f:
             f.write(data)
+        return changed
 
     def open_in_fl(self):
         s = self.sess
@@ -917,10 +921,7 @@ class App:
             if m is not None and m != s.known_mtime and s.known_mtime is not None:
                 if m == s.seen_mtime:
                     s.known_mtime = m
-                    if s.baton == s.id:
-                        await self.publish()
-                    else:
-                        s.local_dirty = True
+                    await self.publish()
                 s.seen_mtime = m
 
     async def give_baton(self, to):
