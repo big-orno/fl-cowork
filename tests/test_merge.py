@@ -104,6 +104,52 @@ o, r = flp.merge(b2, mine, tempo(b2, 140000))
 assert r['conflicts'] == 0 and any(e == 156 and struct.unpack('<I', x)[0] == 140000 for e, x in flp.events(o))
 assert len(read(o)[0]) == 2
 
+# --- playlist : pas de doublons -------------------------------------------------
+def clip(pos, length, track, pat=1, serial=1, flags=0):
+    b = bytearray(item(pos, length, track))
+    struct.pack_into('<HI', b, 6, 0x5000 + pat, 0)
+    struct.pack_into('<I', b, 8, length)
+    struct.pack_into('<I', b, 32, serial)
+    b[55] = flags
+    return bytes(b)
+
+
+def pl(data):
+    return sorted((struct.unpack_from('<I', x, 0)[0], flp._track(x), struct.unpack_from('<I', x, 32)[0])
+                  for x in read(data)[1])
+
+
+B = [clip(0, 384, 499, serial=1), clip(384, 384, 499, serial=2), clip(0, 384, 498, 2, serial=3)]
+base = make(tpl, B, [note(0, 60)])
+# l'autre machine a renumerote les series et change des octets sans importance : rien ne doit bouger
+other = make(tpl, [clip(0, 384, 499, serial=11, flags=1), clip(384, 384, 499, serial=12),
+                   clip(0, 384, 498, 2, serial=13, flags=1)], [note(0, 60)])
+o, r = flp.merge(base, make(tpl, B + [clip(768, 384, 499, serial=4)], [note(0, 60)]), other)
+got = [(p_, t_) for p_, t_, _ in pl(o)]
+assert got == [(0, 498), (0, 499), (384, 499), (768, 499)], got
+assert r['moved'] == 0, r
+# les deux ajoutent le meme clip au meme endroit : un seul
+same_a = make(tpl, B + [clip(768, 384, 499, serial=4)], [note(0, 60)])
+same_b = make(tpl, B + [clip(768, 384, 499, serial=9)], [note(0, 60)])
+o, r = flp.merge(base, same_a, same_b)
+assert [(p_, t_) for p_, t_, _ in pl(o)].count((768, 499)) == 1 and r['moved'] == 0, pl(o)
+# un clip ajoute au meme endroit que celui de l'autre, d'un motif different : decale, pas fusionne
+diff = make(tpl, B + [clip(768, 384, 499, 3, serial=4)], [note(0, 60)])
+o, r = flp.merge(base, diff, same_b)
+assert sorted((p_, t_) for p_, t_, _ in pl(o)).count((768, 499)) == 1 and (768, 498) in [(p_, t_) for p_, t_, _ in pl(o)], pl(o)
+# memes clips deplaces des deux cotes : pas de copie en double
+mv_a = make(tpl, [clip(0, 384, 499, serial=1), clip(1000, 384, 499, serial=2), B[2]], [note(0, 60)])
+mv_b = make(tpl, [clip(0, 384, 499, serial=1), clip(2000, 384, 499, serial=2), B[2]], [note(0, 60)])
+o, r = flp.merge(base, mv_a, mv_b)
+assert len(pl(o)) == 3 and (1000, 499) in [(p_, t_) for p_, t_, _ in pl(o)], pl(o)
+# suppression locale d'un clip que l'autre n'a pas touche
+o, r = flp.merge(base, make(tpl, B[:2], [note(0, 60)]), other)
+assert len(pl(o)) == 2, pl(o)
+# numeros de serie toujours uniques
+o, r = flp.merge(base, make(tpl, B + [clip(768, 384, 499, serial=12)], [note(0, 60)]), other)
+ids = [x[2] for x in pl(o)]
+assert len(ids) == len(set(ids)), ids
+
 v = flp.set_version(theirs, '24.0.0.1')
 assert flp.version_of(v) == '24.0.0.1' and read(v) == read(theirs)
 print('FUSION OK')

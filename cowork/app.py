@@ -101,16 +101,11 @@ class App:
         try:
             bridge = await asyncio.start_server(self.on_script, '127.0.0.1', net.BRIDGE_PORT)
         except OSError:
-            rt = env.load_json(env.RUNTIME, {})
-            if rt.get('url') and open_ui:
-                env.open_ui(rt['url'])
-            return
+            return          # une autre instance est deja lancee
         http = await asyncio.start_server(self.on_http, '127.0.0.1', 0)
         self.ui_port = http.sockets[0].getsockname()[1]
         url = 'http://127.0.0.1:%d/?t=%s' % (self.ui_port, self.token)
         env.save_json(env.RUNTIME, {'url': url, 'pid': os.getpid()})
-        if open_ui:
-            env.open_ui(url)
         ticker = asyncio.ensure_future(self.ticker())
         flusher = asyncio.ensure_future(self.flusher())
         await self.quit.wait()
@@ -632,6 +627,10 @@ class App:
             s.fights.clear()
             s.muted.clear()
             if rev['author'] == s.id:
+                try:
+                    os.replace(os.path.join(s.dir, '.base.new'), os.path.join(s.dir, '.base.flp'))
+                except OSError:
+                    pass
                 s.local_n = s.file_n = rev['n']
                 s.local_dirty = False
                 s.known_mtime = s.pub_mtime
@@ -681,7 +680,7 @@ class App:
             except OSError:
                 lost.append(name)
         mtime = os.stat(s.flp).st_mtime_ns
-        shutil.copyfile(s.flp, os.path.join(s.dir, '.base.flp'))   # reference des prochaines fusions
+        shutil.copyfile(s.flp, os.path.join(s.dir, '.base.new'))   # deviendra la reference si le serveur accepte
         files = []
         for name in sorted(os.listdir(s.dir)):
             path = os.path.join(s.dir, name)
@@ -772,7 +771,6 @@ class App:
         try:
             while self.sess is s and s.rev and s.file_n != s.rev['n'] and s.rev['author'] != s.id:
                 rev = s.rev
-                mine = await self.snapshot_local(s)
                 todo = []
                 for name, size, sha in rev['files']:
                     dst = os.path.join(s.dir, safe_name(name))
@@ -795,8 +793,13 @@ class App:
                         if not got:
                             ok = False
                             continue
-                    await loop.run_in_executor(None, shutil.copyfile, blob, dst)
                 s.xfer = None
+                # tout est telecharge : on fige maintenant le travail local, juste avant d'ecraser le projet
+                mine = await self.snapshot_local(s)
+                for dst, size, sha in todo:
+                    blob = os.path.join(env.BLOBS, sha)
+                    if os.path.exists(blob):
+                        await loop.run_in_executor(None, shutil.copyfile, blob, dst)
                 if not ok:
                     self.say('Certains fichiers du projet sont introuvables.')
                 s.flp = os.path.join(s.dir, safe_name(rev['flp']))
@@ -1050,10 +1053,7 @@ class App:
             if host in ('127.0.0.1', 'localhost'):
                 tok = headers.get('x-token') or (parse_qs(url.query).get('t') or [''])[0]
                 good = secrets.compare_digest(tok, self.token)
-                if url.path == '/' and good:
-                    with open(env.resource('ui.html'), 'rb') as f:
-                        status, ctype, payload = 200, 'text/html; charset=utf-8', f.read()
-                elif url.path == '/api/state' and good:
+                if url.path == '/api/state' and good:
                     status, ctype, payload = 200, 'application/json', json.dumps(self.state()).encode()
                 elif url.path == '/api/act' and good and method == 'POST':
                     try:
@@ -1073,6 +1073,10 @@ class App:
 
 
 def main(open_ui=True):
+    if open_ui:
+        from . import gui
+        gui.run(App)
+        return
     app = App()
     try:
         asyncio.run(app.run(open_ui))

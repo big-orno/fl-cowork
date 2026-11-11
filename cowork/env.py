@@ -126,16 +126,6 @@ def run_elevated(*args):
     return r > 32
 
 
-def open_ui(url):
-    for base in (os.environ.get('ProgramFiles(x86)', ''), os.environ.get('ProgramFiles', '')):
-        edge = os.path.join(base, 'Microsoft', 'Edge', 'Application', 'msedge.exe')
-        if base and os.path.exists(edge):
-            subprocess.Popen([edge, '--app=' + url, '--window-size=470,820'])
-            return
-    import webbrowser
-    webbrowser.open(url)
-
-
 def pick_flp():
     """Boite de dialogue Windows 'Ouvrir' pour choisir un .flp. Renvoie '' si annule."""
     class OFN(ctypes.Structure):

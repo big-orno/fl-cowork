@@ -200,6 +200,16 @@ def main():
         b.act('leave')
         pump(lambda: len(a.state()['session']['peers']) == 1, 'depart de B')
         print("TOUS LES TESTS PASSENT")
+    except AssertionError:
+        for s in sides:
+            try:
+                st = s.state()['session']
+                print('  [%s] rev=%s file_n=%s local_n=%s fetching/why=%s' % (s.name, st['rev']['n'], st['file_n'], st['local_n'], st.get('why')))
+                print('  chat:', [m.get('text') for m in st['chat']][-6:])
+            except Exception as e:
+                print(s.name, e)
+        print('  notes A', get_notes(fa), 'notes B', get_notes(fb))
+        raise
     finally:
         for s in sides:
             try:

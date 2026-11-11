@@ -188,26 +188,94 @@ def _scan(evs):
     return notes, items, pats, chans
 
 
-def _merge_lists(base, mine, theirs):
-    """Fusion a trois voies d'une liste d'enregistrements : ce que 'mine' a ajoute
-    ou retire par rapport a 'base' est reporte sur 'theirs'. Renvoie (liste, ajouts)."""
-    from collections import Counter
-    cb, cm = Counter(base), Counter(mine)
-    added = cm - cb
-    removed = cb - cm
-    out = []
-    drop = Counter(removed)
-    for x in theirs:
-        if drop[x] > 0:
-            drop[x] -= 1
-        else:
-            out.append(x)
+def _note_key(n):
+    return struct.unpack_from('<I', n, 0)[0], struct.unpack_from('<H', n, 6)[0], struct.unpack_from('<H', n, 12)[0]
+
+
+def _item_key(it):
+    """Identite d'un clip de playlist : position, piste, motif/echantillon. Les autres octets
+    (numero de serie, selection...) changent d'une sauvegarde a l'autre et ne comptent pas."""
+    return struct.unpack_from('<IHH', it, 0) + (_track(it),)
+
+
+def _item_kind(it):
+    return struct.unpack_from('<HHI', it, 4)
+
+
+def _item_sig(it):
+    """Contenu d'un clip sans les octets qui changent a chaque sauvegarde (numero de serie, selection)."""
+    return it[:32] + it[36:54] + bytes(3) + it[57:]
+
+
+def _note_sig(n):
+    return n[:4] + bytes(2) + n[6:]
+
+
+def _keyed(recs, key):
+    out, seen = {}, {}
+    for r in recs:
+        k = key(r)
+        n = seen.get(k, 0)
+        seen[k] = n + 1
+        out[(k, n)] = r
+    return out
+
+
+def _pairs(deleted, added, B, M, kind):
+    """Deplacements : un element supprime et un element ajoute de meme nature (meme motif,
+    meme longueur) forment un seul deplacement, quand l'appariement est sans ambiguite."""
+    pairs = {}
+    free = set(added)
+    for d in sorted(deleted):
+        c = [a for a in free if kind(M[a]) == kind(B[d])]
+        if len(c) == 1:
+            pairs[d] = c[0]
+            free.discard(c[0])
+    return pairs
+
+
+def _merge_keyed(base, mine, theirs, key, sig, kind=None):
+    """Fusion a trois voies d'une liste d'enregistrements, par identite (key) et non par contenu.
+
+    Deux enregistrements de meme identite ne sont jamais dupliques. Renvoie
+    (liste fusionnee, liste des enregistrements ajoutes par 'mine')."""
+    B, M, T = _keyed(base, key), _keyed(mine, key), _keyed(theirs, key)
+    res = dict(T)
+    dm, am = set(B) - set(M), set(M) - set(B)
+    dt, at = set(B) - set(T), set(T) - set(B)
+    mv_m = _pairs(dm, am, B, M, kind) if kind else {}
+    mv_t = _pairs(dt, at, B, T, kind) if kind else {}
+    for k in dm:
+        if k in mv_m and k in mv_t and mv_m[k] != mv_t[k]:
+            res.pop(mv_t[k], None)             # deplace des deux cotes : la destination locale l'emporte
+        if k in res and sig(T[k]) == sig(B[k]):
+            del res[k]                         # supprime ici, intact la-bas (sinon modifie la-bas : on garde)
+    for k in set(M) & set(B):
+        if k in res and sig(M[k]) != sig(B[k]) and sig(M[k]) != sig(T[k]):
+            res[k] = M[k]                      # modifie ici (par rapport a la base) : la modification suit
     new = []
-    for x in mine:
-        if added[x] > 0:
-            added[x] -= 1
-            new.append(x)
-    return out, new
+    for k in M:
+        if k in am and k not in res:
+            res[k] = M[k]
+            new.append(M[k])
+    order = [k for k in T if k in res] + [k for k in M if k in res and k not in T]
+    return [res[k] for k in order], new
+
+
+def _renumber(items):
+    """Numeros de serie des clips (octets 32-35) uniques, pour que FL ne les confonde pas."""
+    used, out, nxt = set(), [], 0
+    for it in items:
+        nxt = max(nxt, struct.unpack_from('<I', it, 32)[0])
+    for it in items:
+        sid = struct.unpack_from('<I', it, 32)[0]
+        if sid in used:
+            nxt += 1
+            sid = nxt
+            it = it[:32] + struct.pack('<I', sid) + it[36:]
+        used.add(sid)
+        out.append(it)
+    return out
 
 
 def _track(item):
@@ -267,16 +335,18 @@ def set_version(data, version):
 
 def _merge_blob(eid, b, m, t, rep):
     """Fusion du contenu d'un evenement de notes (224) ou de playlist (233)."""
-    size = NOTE_SIZE if eid == NOTES else ITEM_SIZE
-    out, new = _merge_lists(_chunks(b, size), _chunks(m, size), _chunks(t, size))
     if eid == NOTES:
+        out, new = _merge_keyed(_chunks(b, NOTE_SIZE), _chunks(m, NOTE_SIZE), _chunks(t, NOTE_SIZE), _note_key, _note_sig)
         rep['notes'] += len(new)
-        return b''.join(out + new)
-    new = [x for x in new if x not in out]
-    placed, moved = _spread(out, new)
+        return b''.join(out)
+    out, new = _merge_keyed(_chunks(b, ITEM_SIZE), _chunks(m, ITEM_SIZE), _chunks(t, ITEM_SIZE),
+                            _item_key, _item_sig, _item_kind)
+    ids = {id(x) for x in new}
+    kept = [x for x in out if id(x) not in ids]
+    placed, moved = _spread(kept, new)
     rep['items'] += len(new)
     rep['moved'] += moved
-    return b''.join(out + placed)
+    return b''.join(_renumber(kept + placed))
 
 
 def _resolve(bs, ms, ts, rep):

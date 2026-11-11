@@ -62,8 +62,11 @@ sont enregistrées puis **fusionnées** avec la version reçue, puis le résulta
 
 - ce que vous seul avez changé est gardé, ce que l'autre seul a changé aussi ;
 - les notes du piano roll des deux côtés sont réunies ;
-- les clips de la playlist des deux côtés sont réunis, et un clip qui chevauche un autre est **décalé
-  sur la piste libre la plus proche** (vers le bas, sinon vers le haut) ;
+- les clips de la playlist des deux côtés sont réunis **sans doublons** : un clip qui se trouve au même
+  endroit, sur la même piste, avec le même contenu, est un seul et même clip, quel que soit son
+  historique ; un clip réellement différent qui en chevauche un autre est **décalé sur la piste libre
+  la plus proche** (vers le bas, sinon vers le haut) ;
+- un clip déplacé ou supprimé d'un côté suit ce changement, sans laisser de copie derrière lui ;
 - les ajouts de canaux, de patterns et de plugins faits d'un côté et de l'autre sont gardés ;
 - si le même réglage a été modifié des deux côtés, **la valeur de celui qui enregistre** est gardée,
   et l'application le dit dans la discussion.
@@ -128,4 +131,4 @@ py -3.14 -m cowork                                    # lancer l'application san
 powershell -ExecutionPolicy Bypass -File build.ps1    # reconstruire l'installateur
 ```
 
-Python 3.13 ou plus récent est nécessaire.
+Python 3.13 ou plus récent est nécessaire (Tkinter inclus, c'est le cas par défaut sous Windows).
