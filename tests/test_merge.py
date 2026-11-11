@@ -180,6 +180,31 @@ o, r = flp.merge(base, make(tpl, [clip(0, 384, 499, serial=77), clip(384, 384, 4
                                   clip(0, 384, 498, 2, serial=79)], [note(0, 60)]), theirs)
 assert not r['changed'], r
 
+# --- reglages personnels de FL : jamais partages -------------------------------
+def setting(data, eid, raw):
+    evs = [(e, raw if e == eid else r) for e, r in flp.events(data)]
+    if not any(e == eid for e, _ in evs):
+        evs.insert(1, (eid, raw))
+    return flp._build(flp._head(data), evs)
+
+
+def get(data, eid):
+    return next((r for e, r in flp.events(data) if e == eid), None)
+
+
+loc = setting(setting(base, 80, struct.pack('<H', 100)), 67, struct.pack('<H', 3))      # pitch general, motif choisi
+dist = setting(setting(theirs, 80, struct.pack('<H', 500)), 67, struct.pack('<H', 7))
+kept = flp.keep_personal(dist, loc)
+assert get(kept, 80) == struct.pack('<H', 100) and get(kept, 67) == struct.pack('<H', 3)
+assert read(kept) == read(dist)                      # le contenu du morceau, lui, vient de l'autre
+# le tempo, lui, est bien partage
+tp = flp._build(flp._head(theirs), [(e, struct.pack('<I', 150000) if e == 156 else r) for e, r in flp.events(theirs)])
+assert get(flp.keep_personal(tp, loc), 156) == struct.pack('<I', 150000)
+# un reglage personnel modifie en local n'est pas une modification a envoyer
+o, r = flp.merge(base, loc, theirs)
+assert r['ok'] and not r['changed'], r
+assert flp.same_content(loc, base)
+
 v = flp.set_version(theirs, '24.0.0.1')
 assert flp.version_of(v) == '24.0.0.1' and read(v) == read(theirs)
 print('FUSION OK')

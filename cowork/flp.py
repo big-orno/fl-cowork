@@ -361,6 +361,11 @@ def _ids(evs):
 
 
 VOLATILE = (237, 199, 159)       # horodatage, version, compteur : changent a chaque sauvegarde
+# Reglages propres a chaque utilisateur et a son FL Studio, jamais partages : volume et pitch
+# generaux de FL, motif et filtre selectionnes, hauteur de fenetre, nom d'enregistrement, dossier
+# de donnees, frequence d'echantillonnage, mode de lecture. Chacun garde les siens.
+PERSONAL = (12, 80, 67, 146, 133, 217, 200, 202, 153, 9)
+QUIET = VOLATILE + PERSONAL
 
 
 def _remap(evs, chmap, patmap):
@@ -446,7 +451,7 @@ def _semantic(evs):
     """Contenu qui compte : sans les champs volatils, avec clips et notes compares par identite."""
     out = []
     for e, r in evs:
-        if e in VOLATILE:
+        if e in QUIET:
             continue
         if e == PLAYLIST:
             r = b''.join(sorted(_item_sig(x) for x in _chunks(r, ITEM_SIZE)))
@@ -500,12 +505,12 @@ def merge(base, mine, theirs):
     # les champs volatils locaux ne sont pas des modifications : on garde ceux de la base
     vol = {}
     for e, r in eb:
-        if e in VOLATILE:
+        if e in QUIET:
             vol.setdefault(e, []).append(r)
     seen = {}
     fixed = []
     for e, r in em:
-        if e in VOLATILE:
+        if e in QUIET:
             k = seen.get(e, 0)
             seen[e] = k + 1
             if k < len(vol.get(e, ())):
@@ -556,6 +561,27 @@ def merge(base, mine, theirs):
         return theirs, rep
     rep['changed'] = True
     return _build(_head(theirs), res), rep
+
+
+def keep_personal(data, local):
+    """Remplace dans 'data' les reglages personnels (PERSONAL) par ceux de 'local'.
+    Si 'local' en est depourvu, on garde ceux de 'data'."""
+    try:
+        mine = {}
+        for e, r in events(local):
+            if e in PERSONAL:
+                mine.setdefault(e, []).append(r)
+        seen, out, changed = {}, [], False
+        for e, r in events(data):
+            if e in PERSONAL and mine.get(e):
+                k = seen.get(e, 0)
+                seen[e] = k + 1
+                if k < len(mine[e]) and mine[e][k] != r:
+                    r, changed = mine[e][k], True
+            out.append((e, r))
+        return _build(_head(data), out) if changed else data
+    except (ValueError, IndexError):
+        return data
 
 
 def same_content(a, b):

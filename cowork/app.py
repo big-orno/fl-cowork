@@ -795,7 +795,7 @@ class App:
                             continue
                 s.xfer = None
                 # tout est telecharge : on fige maintenant le travail local, juste avant d'ecraser le projet
-                mine = await self.snapshot_local(s)
+                mine, local = await self.snapshot_local(s)
                 for dst, size, sha in todo:
                     blob = os.path.join(env.BLOBS, sha)
                     if os.path.exists(blob):
@@ -813,7 +813,7 @@ class App:
                         self.say('%d sample(s) reçu(s) et relié(s) au projet.' % n)
                     except (OSError, ValueError) as e:
                         self.say('Samples reçus mais non reliés au projet : %s' % e)
-                changed = await loop.run_in_executor(None, self.finish_fetch, s, mine)
+                changed = await loop.run_in_executor(None, self.finish_fetch, s, mine, local)
                 s.known_mtime = s.seen_mtime = os.stat(s.flp).st_mtime_ns
                 s.file_n = rev['n']
                 s.local_dirty = False
@@ -835,7 +835,7 @@ class App:
         s'il differe de la derniere version connue (None sinon)."""
         base = os.path.join(s.dir, '.base.flp')
         if not s.file_n or not os.path.exists(base) or not os.path.exists(s.flp):
-            return None
+            return None, None
         if self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty'):
             before = os.stat(s.flp).st_mtime_ns
             self.ssend({'t': 'save'})
@@ -849,15 +849,15 @@ class App:
             with open(s.flp, 'rb') as f, open(base, 'rb') as g:
                 mine, ref = f.read(), g.read()
             if flp.same_content(mine, ref):
-                return None
+                return None, mine
             bk = os.path.join(s.dir, 'Sauvegardes')
             os.makedirs(bk, exist_ok=True)
             with open(os.path.join(bk, time.strftime('local-%Hh%Mm%S.flp')), 'wb') as f:
                 f.write(mine)
-            return mine
+            return mine, mine
         return await asyncio.get_running_loop().run_in_executor(None, read)
 
-    def finish_fetch(self, s, mine):
+    def finish_fetch(self, s, mine, local=None):
         """(thread) Reference de fusion, fusion du travail local, version de FL."""
         base = os.path.join(s.dir, '.base.flp')
         with open(s.flp, 'rb') as f:
@@ -881,6 +881,14 @@ class App:
             else:
                 self.say("Votre travail local n'a pas pu être fusionné (%s) ; copie dans le dossier "
                          "« Sauvegardes » de la session." % r['why'])
+        if local is None:        # premiere reception : reglages personnels neutres (modele vide de FL)
+            try:
+                with open(env.empty_template(), 'rb') as f:
+                    local = f.read()
+            except (OSError, TypeError):
+                local = None
+        if local is not None:
+            data = flp.keep_personal(data, local)
         ver = env.fl_version()
         if ver and flp._vtuple(flp.version_of(data)) > flp._vtuple(ver):
             theirs = flp.set_version(theirs, ver)

@@ -55,6 +55,15 @@ Chacun travaille dans son FL Studio, sans rien changer à ses habitudes. À **ch
 Rien n'est synchronisé « en direct » pendant que vous jouez ou réglez : c'est l'enregistrement qui
 déclenche l'envoi.
 
+### Ce qui est partagé, et ce qui reste à vous
+
+Tout ce qui appartient au morceau est partagé : notes, clips, automations, canaux, plugins et leurs
+presets, mixeur complet (master compris), tempo, signature rythmique, noms et couleurs.
+
+Vos réglages personnels de FL Studio ne sont **jamais** écrasés par ceux des autres : volume et pitch
+généraux de FL, motif et filtre sélectionnés, taille de fenêtre, nom d'enregistrement, dossier de
+données, fréquence d'échantillonnage, mode de lecture.
+
 ### Quand vous avez travaillé de votre côté
 
 Si une version arrive alors que vous avez des modifications que vous n'avez pas encore envoyées, elles
