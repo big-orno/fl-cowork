@@ -441,6 +441,9 @@ class App:
         s.src_dir = os.path.dirname(os.path.abspath(src))
         ip = net.lan_ip()
         s.codes = {'lan': net.make_code(ip, hub.port, key)}
+        vpn = net.vpn_ips()
+        if vpn:
+            s.codes['vpn'] = net.make_code(vpn[0], hub.port, key)
         self.sess = s
         try:
             await self.connect('127.0.0.1')

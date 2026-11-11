@@ -82,7 +82,9 @@ label.tg{display:flex;gap:8px;align-items:center;cursor:pointer;padding:3px 0}
     <div class="card" id="xfer"><div id="xfert"></div><div class="bar"><i id="xferb"></i></div></div>
     <div class="card" id="codes">
       <h2>Inviter</h2>
-      <div class="dim small">Même réseau (ou VPN type Tailscale)</div>
+      <div id="vpnbox"><div class="dim small">VPN (Radmin, Hamachi, Tailscale) : à utiliser si vous êtes sur un VPN</div>
+      <div class="row" style="margin:4px 0 8px"><div class="code grow" id="cvpn"></div><button class="sm" data-copy="cvpn">Copier</button></div></div>
+      <div class="dim small">Même réseau local (box / Wi-Fi)</div>
       <div class="row" style="margin:4px 0 8px"><div class="code grow" id="clan"></div><button class="sm" data-copy="clan">Copier</button></div>
       <div id="wanbox"><div class="dim small">Internet</div>
       <div class="row" style="margin-top:4px"><div class="code grow" id="cwan"></div><button class="sm" data-copy="cwan">Copier</button></div></div>
@@ -160,6 +162,8 @@ function render(s) {
   $('codes').classList.toggle('hidden', S.role !== 'host');
   if (S.role === 'host') {
     $('clan').textContent = S.codes.lan || '';
+    $('vpnbox').classList.toggle('hidden', !S.codes.vpn);
+    $('cvpn').textContent = S.codes.vpn || '';
     $('wanbox').classList.toggle('hidden', !S.codes.wan);
     $('nowan').classList.toggle('hidden', !!S.codes.wan);
     $('cwan').textContent = S.codes.wan || '';

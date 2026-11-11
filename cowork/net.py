@@ -74,6 +74,21 @@ def lan_ip():
         s.close()
 
 
+def vpn_ips():
+    """Adresses des reseaux prives virtuels (Radmin 26.x, Hamachi 25.x, Tailscale/CGNAT 100.64/10)."""
+    out = []
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+    except OSError:
+        return out
+    for i in infos:
+        ip = i[4][0]
+        a, b = (int(x) for x in ip.split('.')[:2])
+        if (a in (25, 26) or (a == 100 and 64 <= b <= 127)) and ip not in out:
+            out.append(ip)
+    return out
+
+
 def sha_file(path):
     h = hashlib.sha1()
     with open(path, 'rb') as f:
