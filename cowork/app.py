@@ -694,11 +694,11 @@ class App:
             files.append([name, os.path.getsize(path), sha])
         return files, mtime, samples, lost
 
-    async def publish(self):
+    async def publish(self, force=False):
         s = self.sess
         if not s or s.publishing or not s.flp:
             return
-        if s.rev and s.file_n != s.rev['n'] and s.rev.get('author') != s.id:
+        if not force and s.rev and s.file_n != s.rev['n'] and s.rev.get('author') != s.id:
             # une version plus recente existe : on la recoit et on y fusionne ce travail, puis on publie
             if not s.fetching:
                 s.tasks.append(asyncio.ensure_future(self.fetch(s)))
@@ -712,7 +712,7 @@ class App:
                 self.say('Sample(s) introuvable(s) sur votre disque, non partagé(s) : %s' % ', '.join(lost))
             s.lost = tuple(lost)
             self.hsend({'t': 'publish', 'manifest': {
-                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp, 'parent': s.file_n,
+                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp, 'parent': s.file_n, 'force': force,
                 'sig': self.sc.get('sig') if fp else None, 'samples': samples}})
         except Exception as e:
             self.say('Publication impossible : %s' % e)
@@ -764,13 +764,21 @@ class App:
                 os.remove(part)
                 fut.set_result(False)
 
-    async def fetch(self, s):
-        """Telecharge la revision courante dans le dossier de session puis la charge."""
+    async def fetch(self, s, force=False):
+        """Telecharge la revision courante dans le dossier de session puis la charge.
+
+        force : on prend la version partagee telle quelle, sans fusion (la version locale est
+        gardee dans « Sauvegardes »). C'est aussi le cas quand son auteur l'a imposee."""
         s.fetching = True
         loop = asyncio.get_running_loop()
         try:
-            while self.sess is s and s.rev and s.file_n != s.rev['n'] and s.rev['author'] != s.id:
+            while self.sess is s and s.rev and (force or (s.file_n != s.rev['n'] and s.rev['author'] != s.id)):
                 rev = s.rev
+                discard = force or bool(rev.get('force'))
+                force = False
+                if discard and rev.get('force') and rev.get('author') != s.id:
+                    self.say('%s a imposé sa version : elle remplace la vôtre (la vôtre est dans « Sauvegardes »).'
+                             % rev.get('author_name', '?'))
                 todo = []
                 for name, size, sha in rev['files']:
                     dst = os.path.join(s.dir, safe_name(name))
@@ -795,7 +803,7 @@ class App:
                             continue
                 s.xfer = None
                 # tout est telecharge : on fige maintenant le travail local, juste avant d'ecraser le projet
-                mine, local = await self.snapshot_local(s)
+                mine, local = await self.snapshot_local(s, discard)
                 for dst, size, sha in todo:
                     blob = os.path.join(env.BLOBS, sha)
                     if os.path.exists(blob):
@@ -830,13 +838,13 @@ class App:
             s.fetching = False
             s.xfer = None
 
-    async def snapshot_local(self, s):
+    async def snapshot_local(self, s, discard=False):
         """Sauvegarde le travail en cours dans FL puis renvoie les octets du projet local
         s'il differe de la derniere version connue (None sinon)."""
         base = os.path.join(s.dir, '.base.flp')
         if not s.file_n or not os.path.exists(base) or not os.path.exists(s.flp):
             return None, None
-        if self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty'):
+        if not discard and self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty'):
             before = os.stat(s.flp).st_mtime_ns
             self.ssend({'t': 'save'})
             for _ in range(60):
@@ -849,6 +857,12 @@ class App:
             with open(s.flp, 'rb') as f, open(base, 'rb') as g:
                 mine, ref = f.read(), g.read()
             if flp.same_content(mine, ref):
+                return None, mine
+            if discard:
+                bk = os.path.join(s.dir, 'Sauvegardes')
+                os.makedirs(bk, exist_ok=True)
+                with open(os.path.join(bk, time.strftime('local-%Hh%Mm%S.flp')), 'wb') as f:
+                    f.write(mine)
                 return None, mine
             bk = os.path.join(s.dir, 'Sauvegardes')
             os.makedirs(bk, exist_ok=True)
@@ -935,6 +949,25 @@ class App:
                     await self.publish()
                 s.seen_mtime = m
 
+    async def force_send(self, s):
+        """Impose la version locale : elle remplace la version partagee, sans fusion."""
+        if self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty') and os.path.exists(s.flp):
+            before = os.stat(s.flp).st_mtime_ns
+            self.ssend({'t': 'save'})
+            for _ in range(60):
+                await asyncio.sleep(0.1)
+                if os.stat(s.flp).st_mtime_ns != before:
+                    await asyncio.sleep(0.3)
+                    break
+        if os.path.exists(s.flp):
+            s.known_mtime = s.seen_mtime = os.stat(s.flp).st_mtime_ns     # le ticker ne republie pas
+        for _ in range(100):
+            if not s.publishing:
+                break
+            await asyncio.sleep(0.1)
+        self.say('Envoi de votre version imposée...')
+        await self.publish(force=True)
+
     async def give_baton(self, to):
         s = self.sess
         if not s or s.baton != s.id or to not in s.peers:
@@ -1020,6 +1053,11 @@ class App:
                 self.ssend({'t': 'save'})
             else:
                 await self.publish()
+        elif op == 'force_send' and s:
+            await self.force_send(s)
+        elif op == 'force_recv' and s:
+            if s.rev and not s.fetching:
+                s.tasks.append(asyncio.ensure_future(self.fetch(s, force=True)))
         elif op == 'reload' and s:
             if s.rev and s.file_n != s.rev['n'] and not s.fetching and s.rev['author'] != s.id:
                 s.tasks.append(asyncio.ensure_future(self.fetch(s)))

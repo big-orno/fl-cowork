@@ -195,6 +195,25 @@ def main():
         step[0] += 1
         print('  ok %2d  stable : pas de republication en boucle' % step[0])
 
+        # imposer sa version : remplace tout, sans fusion
+        n1 = a.state()['session']['rev']['n']
+        set_notes(fa, [777])
+        a.act('force_send')
+        pump(lambda: b.state()['session']['file_n'] > n1 and get_notes(fb) == [777],
+             "version imposee par A : B la prend telle quelle, sans fusion")
+        assert get_notes(fa) == [777]
+        b.load_project('Mon Morceau')
+        a.load_project('Mon Morceau')
+        time.sleep(1.5)
+        # prendre leur version : abandonne le travail local, qui est garde en sauvegarde
+        set_notes(fb, [5, 6])
+        b.act('force_recv')
+        pump(lambda: get_notes(fb) == [777], "B prend la version partagee : son travail local est ecarte")
+        bk = os.path.join(bdir, 'Sauvegardes')
+        assert os.path.isdir(bk) and any(get_notes(os.path.join(bk, f)) == [5, 6] for f in os.listdir(bk)), 'pas de sauvegarde'
+        step[0] += 1
+        print('  ok %2d  le travail ecarte est conserve dans Sauvegardes' % step[0])
+
         b.act('chat', text='salut')
         pump(lambda: any(m.get('text') == 'salut' for m in a.state()['session']['chat']), 'discussion')
         b.act('leave')

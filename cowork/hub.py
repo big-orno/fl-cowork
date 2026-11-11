@@ -166,7 +166,7 @@ class Hub:
                 self.cast({'t': 'rev', 'rev': self.rev})
         elif t == 'publish':
             man = msg['manifest']
-            if man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
+            if not man.get('force') and man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
                 self.send(peer, {'t': 'stale'})      # une version plus recente existe : fusionner d'abord
                 return
             self.pending[peer.id] = man
@@ -184,13 +184,14 @@ class Hub:
         man = self.pending.pop(peer.id, None)
         if not man:
             return
-        if man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
+        if not man.get('force') and man.get('parent', 0) != (self.rev['n'] if self.rev else 0):
             self.send(peer, {'t': 'stale'})
             return
         n = (self.rev['n'] if self.rev else 0) + 1
         self.rev = {'n': n, 'author': peer.id, 'author_name': peer.name, 'time': time.time(),
                     'flp': man['flp'], 'files': man['files'], 'fp': man.get('fp'),
-                    'sig': man.get('sig'), 'samples': man.get('samples') or []}
+                    'sig': man.get('sig'), 'samples': man.get('samples') or [],
+                    'force': bool(man.get('force'))}
         self.ops.clear()
         self.muted.clear()
         self.cast({'t': 'rev', 'rev': self.rev})

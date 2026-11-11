@@ -87,6 +87,19 @@ sont enregistrées puis **fusionnées** avec la version reçue, puis le résulta
 Une copie de votre version d'avant la fusion est conservée dans le dossier `Sauvegardes` de la
 session.
 
+### Quand la fusion n'est pas ce que vous voulez
+
+Deux boutons de l'application court-circuitent la fusion. Ils servent surtout quand vous avez ouvert
+le mauvais projet : fusionner deux fichiers sans rapport donnerait n'importe quoi.
+
+- **Imposer ma version** : votre projet, tel qu'il est chez vous, remplace la version partagée chez tous.
+  Chez les autres, leur travail non envoyé est copié dans leur dossier `Sauvegardes`, puis ils chargent
+  votre version sans fusion.
+- **Prendre leur version** : vous rechargez la dernière version partagée, sans fusion. Votre projet
+  actuel est copié dans `Sauvegardes` avant d'être remplacé.
+
+Ctrl+S, lui, continue d'envoyer et de fusionner normalement.
+
 ## Samples
 
 Les samples personnels utilisés dans le projet sont envoyés automatiquement à chaque enregistrement, et

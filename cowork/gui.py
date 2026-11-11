@@ -186,6 +186,11 @@ class Gui(tk.Tk):
         self.btn_load.pack(side='left', padx=6)
         ttk.Button(r, text='Dossier', command=lambda: self.call('folder')).pack(side='left')
         ttk.Button(r, text='Quitter la session', command=self.leave).pack(side='right')
+        r2 = ttk.Frame(st)
+        r2.pack(fill='x', pady=(6, 0))
+        ttk.Button(r2, text='Imposer ma version', command=self.force_send).pack(side='left')
+        ttk.Button(r2, text='Prendre leur version', command=self.force_recv).pack(side='left', padx=6)
+        ttk.Label(r2, text='sans fusion', style='Dim.TLabel').pack(side='left')
         self.autoload = tk.BooleanVar()
         ttk.Checkbutton(st, text='Charger automatiquement les nouvelles versions', variable=self.autoload,
                         command=lambda: self.call('set', key='autoload', value=self.autoload.get())).pack(anchor='w', pady=(8, 0))
@@ -272,6 +277,21 @@ class Gui(tk.Tk):
     def leave(self):
         if messagebox.askyesno('FL Cowork', 'Quitter la session ?'):
             self.call('leave')
+
+    def force_send(self):
+        if messagebox.askyesno('Imposer ma version',
+                               "Envoyer le projet tel qu'il est chez vous, SANS fusion ?\n\n"
+                               "Il remplacera la version partagée chez tous les participants. Leur travail "
+                               "non envoyé sera copié dans leur dossier « Sauvegardes ».\n\n"
+                               "À utiliser si vous vous êtes trompé de projet."):
+            self.call('force_send')
+
+    def force_recv(self):
+        if messagebox.askyesno('Prendre leur version',
+                               "Recharger la dernière version partagée, SANS fusion ?\n\n"
+                               "Votre projet actuel sera remplacé. Une copie est conservée dans le dossier "
+                               "« Sauvegardes » de la session."):
+            self.call('force_recv')
 
     def send_chat(self):
         t = self.msg.get().strip()
