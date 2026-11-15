@@ -691,7 +691,7 @@ def _blocks(evs):
         elif e == NEW_PAT:
             kind, key = 'p', struct.unpack('<H', r[:2])[0]
             pats.setdefault(key, [])
-        elif e == 99:
+        elif e in (99, PLAYLIST, 235, 236, 238, 239, 241, 242):
             kind = None
         if kind == 'c':
             chans[key].append((e, r))
