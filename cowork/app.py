@@ -72,11 +72,14 @@ class Session:
         self.warned = set()
         self.burst_at = {}
         self.diffs = []
+        self.history = []
+        self.incoming = None       # version recue en attente de validation (mode manuel)
+        self.local_summary = []    # resume de mes modifications non envoyees
 
 
 class App:
     def __init__(self):
-        self.cfg = {'name': getpass.getuser(), 'follow': False, 'autoload': True}
+        self.cfg = {'name': getpass.getuser(), 'follow': False, 'autoload': True, 'mode': 'auto'}
         self.cfg.update(env.load_json(env.CONFIG, {}))
         self.token = secrets.token_urlsafe(12)
         self.script = None
@@ -120,7 +123,18 @@ class App:
         except OSError:
             pass
 
+    def log(self, text):
+        """Journal persistant (journal.log) : sert au diagnostic en cas de probleme."""
+        try:
+            if os.path.exists(env.LOG) and os.path.getsize(env.LOG) > 1_000_000:
+                os.replace(env.LOG, env.LOG + '.old')
+            with open(env.LOG, 'a', encoding='utf-8') as f:
+                f.write('%s  %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), text))
+        except OSError:
+            pass
+
     def say(self, text):
+        self.log(text)
         s = self.sess
         if s:
             s.chat.append({'sys': 1, 'text': text, 'time': time.time()})
@@ -480,6 +494,7 @@ class App:
             os.makedirs(s.dir, exist_ok=True)
         s.tasks.append(asyncio.ensure_future(self.hub_loop(s)))
         self.say('Session rejointe.' if s.role == 'guest' else 'Session créée.')
+        s.history = list(msg.get('hist') or [])
         if msg.get('rev'):
             self.on_rev(msg['rev'])
         self.update_live()
@@ -538,6 +553,9 @@ class App:
             s.baton_reqs.pop(msg['id'], None)
             if p:
                 self.say('%s a quitté la session.' % p['name'])
+        elif t == 'hist_add':
+            s.history.append(msg['h'])
+            del s.history[:-300]
         elif t == 'chat':
             s.chat.append(msg)
             del s.chat[:-200]
@@ -633,16 +651,72 @@ class App:
                     pass
                 s.local_n = s.file_n = rev['n']
                 s.local_dirty = False
+                s.local_summary = []
+                s.incoming = None
                 s.known_mtime = s.pub_mtime
                 self.say('Version %d publiée.' % rev['n'])
+                if rev.get('restore'):
+                    # restauration demandee par moi : mon projet doit lui aussi revenir a cette version
+                    s.tasks.append(asyncio.ensure_future(self.fetch(s, force=True)))
                 if not self.title_ok():
                     self.open_in_fl()
             else:
-                self.say('%s a publié la version %d.' % (rev.get('author_name', '?'), rev['n']))
-                if not s.fetching:
+                self.say('%s a publié la version %d%s.' % (rev.get('author_name', '?'), rev['n'],
+                                                           ' (%s)' % rev['msg'] if rev.get('msg') else ''))
+                if self.cfg.get('mode') == 'manual' and s.file_n:
+                    # mode manuel : on prepare un resume, rien n'est applique avant validation
+                    s.incoming = {'n': rev['n'], 'author': rev.get('author_name', '?'), 'time': rev['time'],
+                                  'msg': rev.get('msg', ''), 'force': bool(rev.get('force')), 'lines': None}
+                    s.tasks.append(asyncio.ensure_future(self.prepare_incoming(s, rev)))
+                elif not s.fetching:
                     s.tasks.append(asyncio.ensure_future(self.fetch(s)))
         self.check_plugins()
         self.update_live()
+
+    async def get_blob(self, s, sha):
+        """Garantit la presence d'un blob dans le cache local (le demande au hub si besoin)."""
+        path = os.path.join(env.BLOBS, sha)
+        if os.path.exists(path):
+            return True
+        fut = asyncio.get_running_loop().create_future()
+        s.waiting[sha] = fut
+        self.hsend({'t': 'get', 'sha': sha})
+        try:
+            return await asyncio.wait_for(fut, 120)
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            s.waiting.pop(sha, None)
+
+    async def prepare_incoming(self, s, rev):
+        """Resume de ce qu'apporte une version recue, sans rien appliquer."""
+        lines = ['Résumé indisponible.']
+        try:
+            ent = next((f for f in rev['files'] if f[0] == rev['flp']), None)
+            base = os.path.join(s.dir, '.base.flp')
+            if ent and os.path.exists(base) and await self.get_blob(s, ent[2]):
+                def work():
+                    with open(os.path.join(env.BLOBS, ent[2]), 'rb') as f, open(base, 'rb') as g:
+                        return flp.summarize(g.read(), f.read())
+                lines = await asyncio.get_running_loop().run_in_executor(None, work)
+        except Exception as e:
+            self.log('resume impossible : %s' % e)
+        if s.incoming and s.incoming['n'] == rev['n']:
+            s.incoming['lines'] = lines
+
+    async def refresh_local_summary(self, s):
+        """Resume de mes modifications par rapport a la derniere version commune."""
+        base = os.path.join(s.dir, '.base.flp')
+        if not os.path.exists(base) or not os.path.exists(s.flp):
+            return
+
+        def work():
+            with open(base, 'rb') as g, open(s.flp, 'rb') as f:
+                return flp.summarize(g.read(), f.read())
+        try:
+            s.local_summary = await asyncio.get_running_loop().run_in_executor(None, work)
+        except Exception as e:
+            self.log('resume local impossible : %s' % e)
 
     def _sha(self, s, path):
         st = os.stat(path)
@@ -694,7 +768,7 @@ class App:
             files.append([name, os.path.getsize(path), sha])
         return files, mtime, samples, lost
 
-    async def publish(self, force=False):
+    async def publish(self, force=False, msg=''):
         s = self.sess
         if not s or s.publishing or not s.flp:
             return
@@ -713,7 +787,7 @@ class App:
                 self.say('Sample(s) introuvable(s) sur votre disque, non partagé(s) : %s' % ', '.join(lost))
             s.lost = tuple(lost)
             self.hsend({'t': 'publish', 'manifest': {
-                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp, 'parent': s.file_n, 'force': force,
+                'flp': os.path.basename(s.flp), 'files': files, 'fp': fp, 'parent': s.file_n, 'force': force, 'msg': msg,
                 'sig': self.sc.get('sig') if fp else None, 'samples': samples}})
         except Exception as e:
             self.say('Publication impossible : %s' % e)
@@ -829,8 +903,14 @@ class App:
                 if self.cfg.get('autoload') or s.local_n == 0:
                     self.open_in_fl()
                 self.update_live()
-                if changed:
+                s.incoming = None
+                if changed and self.cfg.get('mode') != 'manual':
                     await self.publish()      # le travail local fusionne repart chez les autres
+                elif changed:
+                    s.local_dirty = True
+                    self.say('Fusion faite : relisez dans FL, puis envoyez quand vous êtes prêt.')
+                if self.cfg.get('mode') == 'manual':
+                    await self.refresh_local_summary(s)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -950,8 +1030,26 @@ class App:
             if m is not None and m != s.known_mtime and s.known_mtime is not None:
                 if m == s.seen_mtime:
                     s.known_mtime = m
-                    await self.publish()
+                    if self.cfg.get('mode') == 'manual':
+                        s.local_dirty = True          # enregistre localement : rien ne part avant « Envoyer »
+                        await self.refresh_local_summary(s)
+                    else:
+                        await self.publish()
                 s.seen_mtime = m
+
+    async def send_now(self, s, msg=''):
+        """Enregistre le projet dans FL si besoin, puis l'envoie (avec fusion si une version plus recente existe)."""
+        if self.script and self.title_ok() and (self.sc.get('pres') or {}).get('dirty') and os.path.exists(s.flp):
+            before = os.stat(s.flp).st_mtime_ns
+            self.ssend({'t': 'save'})
+            for _ in range(60):
+                await asyncio.sleep(0.1)
+                if os.stat(s.flp).st_mtime_ns != before:
+                    await asyncio.sleep(0.3)
+                    break
+        if os.path.exists(s.flp):
+            s.known_mtime = s.seen_mtime = os.stat(s.flp).st_mtime_ns
+        await self.publish(msg=msg)
 
     async def force_send(self, s):
         """Impose la version locale : elle remplace la version partagee, sans fusion."""
@@ -997,6 +1095,7 @@ class App:
         self.last_ui = time.time()
         s = self.sess
         out = {'name': self.cfg['name'], 'follow': self.cfg['follow'], 'autoload': self.cfg['autoload'],
+               'mode': self.cfg.get('mode', 'auto'),
                'fl': bool(self.script), 'fl_title': self.project_title(), 'notice': self.notice,
                'env': self.env_state(), 'session': None}
         if s:
@@ -1018,6 +1117,7 @@ class App:
                 'peers': peers, 'holder': s.baton == s.id, 'live': s.live, 'why': s.why,
                 'rev': {'n': s.rev['n'], 'author': s.rev.get('author_name', '')} if s.rev else None,
                 'local_n': s.local_n, 'file_n': s.file_n, 'local_dirty': s.local_dirty,
+                'incoming': s.incoming, 'local_lines': s.local_summary, 'history': list(s.history[-120:]),
                 'xfer': s.xfer, 'chat': s.chat[-80:], 'dir': s.dir, 'muted': len(s.muted), 'diffs': s.diffs,
             }
         return out
@@ -1053,10 +1153,22 @@ class App:
         elif op == 'baton_give' and s:
             await self.give_baton(int(a.get('to', 0)))
         elif op == 'publish' and s:
-            if self.script and self.title_ok():
-                self.ssend({'t': 'save'})
-            else:
-                await self.publish()
+            await self.send_now(s, str(a.get('msg') or '').strip()[:200])
+        elif op == 'ignore' and s:
+            s.incoming = None
+        elif op == 'restore' and s:
+            self.hsend({'t': 'restore', 'n': int(a.get('n', 0))})
+        elif op == 'mode':
+            self.cfg['mode'] = 'manual' if a.get('value') == 'manual' else 'auto'
+            env.save_json(env.CONFIG, self.cfg)
+            if s and self.cfg['mode'] == 'auto':
+                if s.incoming and not s.fetching:
+                    s.tasks.append(asyncio.ensure_future(self.fetch(s)))
+                elif s.local_dirty:
+                    await self.send_now(s)
+        elif op == 'open_log':
+            if os.path.exists(env.LOG):
+                os.startfile(env.LOG)
         elif op == 'force_send' and s:
             await self.force_send(s)
         elif op == 'force_recv' and s:

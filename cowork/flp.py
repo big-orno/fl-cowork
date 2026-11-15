@@ -677,3 +677,138 @@ def same_content(a, b):
         return a == b or _semantic(list(events(a))) == _semantic(list(events(b)))
     except (ValueError, IndexError):
         return False
+
+
+# ---------------------------------------------------------------- resume des changements
+def _blocks(evs):
+    """Decoupe un projet : canaux, motifs, reste (reglages globaux, mixeur, playlist...)."""
+    chans, pats, glob = {}, {}, []
+    kind, key = None, None
+    for e, r in evs:
+        if e == NEW_CHAN:
+            kind, key = 'c', struct.unpack('<H', r[:2])[0]
+            chans.setdefault(key, [])
+        elif e == NEW_PAT:
+            kind, key = 'p', struct.unpack('<H', r[:2])[0]
+            pats.setdefault(key, [])
+        elif e == 99:
+            kind = None
+        if kind == 'c':
+            chans[key].append((e, r))
+        elif kind == 'p':
+            pats[key].append((e, r))
+        else:
+            glob.append((e, r))
+    return chans, pats, glob
+
+
+def _name(evs, ids, default):
+    for want in ids:
+        for e, r in evs:
+            if e == want and r:
+                t = _text(r).strip('\x00').strip()
+                if t:
+                    return t
+    return default
+
+
+def _norm_chan(e, r):
+    """Chemin de sample : seul le nom du fichier compte (le dossier change d'une machine a l'autre)."""
+    if e == SAMPLE_PATH:
+        return os.path.basename(_text(r).replace(chr(92), '/')).lower()
+    return r
+
+
+def summarize(base, new):
+    """Resume lisible (liste de phrases) de ce qui change entre deux versions d'un projet."""
+    try:
+        eb, en = list(events(base)), list(events(new))
+    except (ValueError, IndexError):
+        return ['Fichier illisible.']
+    cb, pb, gb = _blocks(eb)
+    cn, pn, gn = _blocks(en)
+    out = []
+    # tempo
+    tb = next((r for e, r in gb if e == 156), None)
+    tn = next((r for e, r in gn if e == 156), None)
+    if tb != tn and tn is not None and tb is not None and len(tb) == len(tn) == 4:
+        out.append('Tempo : %g → %g BPM' % (struct.unpack('<I', tb)[0] / 1000, struct.unpack('<I', tn)[0] / 1000))
+    # canaux
+    names_b = {k: _name(v, (203, 201), 'canal %d' % (k + 1)) for k, v in cb.items()}
+    names_n = {k: _name(v, (203, 201), 'canal %d' % (k + 1)) for k, v in cn.items()}
+    for k in sorted(set(cn) - set(cb)):
+        out.append('Nouveau canal : %s' % names_n[k])
+    for k in sorted(set(cb) - set(cn)):
+        out.append('Canal supprimé : %s' % names_b[k])
+    for k in sorted(set(cb) & set(cn)):
+        a = {e: _norm_chan(e, r) for e, r in cb[k] if e not in QUIET and e != 145}
+        b = {e: _norm_chan(e, r) for e, r in cn[k] if e not in QUIET and e != 145}
+        nm = names_n[k]
+        if names_b[k] != nm:
+            out.append('Canal renommé : %s → %s' % (names_b[k], nm))
+        if a.get(213) != b.get(213) or a.get(212) != b.get(212):
+            out.append('Plugin modifié (preset ou réglages) : %s' % nm)
+        rest = [e for e in set(a) | set(b) if e not in (213, 212, 203, 201, 64) and a.get(e) != b.get(e)]
+        if rest:
+            out.append('Réglages du canal modifiés : %s' % nm)
+    # motifs et notes
+    for k in sorted(set(pn) - set(pb)):
+        out.append('Nouveau pattern : %s' % _name(pn[k], (193,), 'pattern %d' % k))
+    for k in sorted(set(pb) - set(pn)):
+        out.append('Pattern supprimé : %s' % _name(pb[k], (193,), 'pattern %d' % k))
+    for k in sorted(set(pb) & set(pn)):
+        nb = _keyed([x for e, r in pb[k] if e == NOTES for x in _chunks(r, NOTE_SIZE)], _note_key)
+        nn = _keyed([x for e, r in pn[k] if e == NOTES for x in _chunks(r, NOTE_SIZE)], _note_key)
+        add, rem = len(set(nn) - set(nb)), len(set(nb) - set(nn))
+        mod = sum(1 for x in set(nb) & set(nn) if _note_sig(nb[x]) != _note_sig(nn[x]))
+        if add or rem or mod:
+            bits = []
+            if add:
+                bits.append('+%d' % add)
+            if rem:
+                bits.append('−%d' % rem)
+            if mod:
+                bits.append('%d modifiée(s)' % mod)
+            out.append('Notes du pattern %s : %s' % (_name(pn[k], (193,), str(k)), ', '.join(bits)))
+        if _name(pb[k], (193,), '') != _name(pn[k], (193,), ''):
+            out.append('Pattern renommé : %s → %s' % (_name(pb[k], (193,), str(k)), _name(pn[k], (193,), str(k))))
+    # playlist
+    ib = [x for e, r in gb if e == PLAYLIST for x in _chunks(r, ITEM_SIZE)]
+    inn = [x for e, r in gn if e == PLAYLIST for x in _chunks(r, ITEM_SIZE)]
+    B, N = _keyed(ib, _item_key), _keyed(inn, _item_key)
+    gone, came = set(B) - set(N), set(N) - set(B)
+    mv = _pairs(gone, came, B, N, _item_kind)
+    gone -= set(mv)
+    came -= set(mv.values())
+    bits = []
+    if came:
+        bits.append('+%d clip(s)' % len(came))
+    if gone:
+        bits.append('−%d clip(s)' % len(gone))
+    if mv:
+        bits.append('%d déplacé(s)' % len(mv))
+    mod = sum(1 for x in set(B) & set(N) if _item_sig(B[x]) != _item_sig(N[x]))
+    if mod:
+        bits.append('%d modifié(s)' % mod)
+    if bits:
+        out.append('Playlist : ' + ', '.join(bits))
+    # mixeur
+    mix_b = [r for e, r in gb if e in (235, 236)]
+    mix_n = [r for e, r in gn if e in (235, 236)]
+    diff = sum(1 for x, y in zip(mix_b, mix_n) if x != y) + abs(len(mix_b) - len(mix_n))
+    if diff:
+        out.append('Mixeur : %d réglage(s) modifié(s)' % diff)
+    # le reste
+    skip = (156, 235, 236, PLAYLIST, 238, 239)
+    ra = {}
+    for e, r in gb:
+        if e not in QUIET and e not in skip:
+            ra.setdefault(e, []).append(r)
+    rn = {}
+    for e, r in gn:
+        if e not in QUIET and e not in skip:
+            rn.setdefault(e, []).append(r)
+    other = sum(1 for e in set(ra) | set(rn) if ra.get(e) != rn.get(e))
+    if other:
+        out.append('Autres réglages du projet : %d' % other)
+    return out or ['Aucun changement notable.']

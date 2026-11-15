@@ -43,6 +43,7 @@ class Hub:
         self.seq = 0
         self.rev = None
         self.baton = None
+        self.history = []          # toutes les versions publiees (manifeste complet)
         self.muted = set()
         self.pending = {}      # pid -> manifeste en attente de blobs
         self.server = None
@@ -104,6 +105,7 @@ class Hub:
                 't': 'welcome', 'id': peer.id, 'project': self.project,
                 'peers': [p.info() for p in self.peers.values()],
                 'rev': self.rev, 'baton': self.baton, 'muted': sorted(self.muted),
+                'hist': [self.brief(h) for h in self.history],
                 'ops': [[k, v, s] for k, (v, s) in self.ops.items()],
             })
             self.cast({'t': 'join', 'peer': peer.info()}, skip=peer.id)
@@ -175,6 +177,16 @@ class Hub:
                 self.send(peer, {'t': 'need', 'shas': need})
             else:
                 self.commit(peer)
+        elif t == 'restore':
+            # nouvelle version identique a une ancienne (rien n'est efface de l'historique)
+            old = next((h for h in self.history if h['n'] == msg.get('n')), None)
+            if old and all(os.path.exists(self.blob(f[2])) for f in old['files']):
+                self.pending[peer.id] = {'flp': old['flp'], 'files': old['files'], 'fp': old.get('fp'),
+                                         'sig': old.get('sig'), 'samples': old.get('samples'), 'force': True,
+                                         'msg': 'Restauration de la version %d' % old['n'], 'restore': old['n']}
+                self.commit(peer)
+            else:
+                self.send(peer, {'t': 'error', 'msg': "Cette version n'est plus disponible."})
         elif t == 'blob':
             await self.on_blob(peer, msg, data)
         elif t == 'get':
@@ -191,10 +203,19 @@ class Hub:
         self.rev = {'n': n, 'author': peer.id, 'author_name': peer.name, 'time': time.time(),
                     'flp': man['flp'], 'files': man['files'], 'fp': man.get('fp'),
                     'sig': man.get('sig'), 'samples': man.get('samples') or [],
-                    'force': bool(man.get('force'))}
+                    'force': bool(man.get('force')),
+                    'msg': str(man.get('msg') or '')[:200], 'restore': man.get('restore')}
+        self.history.append(self.rev)
+        del self.history[:-300]
         self.ops.clear()
         self.muted.clear()
+        self.cast({'t': 'hist_add', 'h': self.brief(self.rev)})
         self.cast({'t': 'rev', 'rev': self.rev})
+
+    @staticmethod
+    def brief(r):
+        return {'n': r['n'], 'author_name': r.get('author_name', ''), 'time': r['time'],
+                'msg': r.get('msg', ''), 'force': bool(r.get('force'))}
 
     async def on_blob(self, peer, msg, data):
         sha = str(msg.get('sha'))

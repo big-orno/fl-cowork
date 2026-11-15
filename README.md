@@ -41,6 +41,22 @@ Dans l'application, le voyant « FL Studio connecté » passe au vert.
 > Le code de session donne accès à la session : ne l'envoyez qu'aux personnes invitées, pas dans un
 > salon public.
 
+## Deux modes de travail
+
+Au choix, dans l'onglet **Changements** de l'application :
+
+- **Automatique** : Ctrl+S envoie et fusionne tout de suite, et les versions reçues se chargent
+  seules. C'est le plus proche du travail en direct.
+- **Manuel (validation)**, façon Git : Ctrl+S enregistre seulement en local. Quand l'autre envoie
+  quelque chose, l'application affiche un **résumé des changements reçus** (nouvelles notes, clips,
+  instruments, presets modifiés, tempo, mixeur...) et ne touche à rien avant que vous cliquiez sur
+  **Appliquer (fusionner)** ou **Ignorer**. De même, vos propres modifications sont résumées et ne
+  partent que quand vous cliquez sur **Envoyer**, avec un message de version facultatif.
+
+L'onglet **Historique** liste toutes les versions de la session (auteur, heure, message). **Restaurer
+cette version** crée une nouvelle version identique à l'ancienne, chez tous ; rien n'est effacé.
+Le bouton **Journal** ouvre un fichier de diagnostic à nous envoyer en cas de problème.
+
 ## Comment ça marche
 
 Chacun travaille dans son FL Studio, sans rien changer à ses habitudes. À **chaque Ctrl+S** :

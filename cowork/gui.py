@@ -19,7 +19,7 @@ class Gui(tk.Tk):
         self.thread = thread
         self.loop_ready = loop_ready
         self.title('FL Cowork')
-        self.geometry('620x840')
+        self.geometry('660x800')
         self.minsize(560, 640)
         self.protocol('WM_DELETE_WINDOW', self.on_close)
         self.theme()
@@ -70,6 +70,13 @@ class Gui(tk.Tk):
                      font=('Segoe UI', 8, 'bold'))
         st.map('Treeview', background=[('selected', '#3a2f26')], foreground=[('selected', TXT)])
         st.map('Treeview.Heading', background=[('active', PANEL)])
+        st.configure('TNotebook', background=BG, bordercolor=LINE, lightcolor=BG, darkcolor=BG, tabmargins=(0, 0, 0, 0))
+        st.configure('TNotebook.Tab', background=BTN, foreground=DIM, padding=(10, 6), bordercolor=LINE,
+                     lightcolor=BTN, darkcolor=BTN, font=('Segoe UI', 9, 'bold'))
+        st.map('TNotebook.Tab', background=[('selected', ACC), ('active', BTN_HOT)],
+               foreground=[('selected', '#1b1206'), ('active', TXT)])
+        st.configure('TRadiobutton', background=BG, foreground=TXT, indicatorbackground=FIELD, indicatorforeground=ACC)
+        st.map('TRadiobutton', background=[('active', BG)], indicatorbackground=[('selected', ACC)])
         st.configure('Horizontal.TProgressbar', background=ACC, troughcolor=FIELD, bordercolor=LINE,
                      lightcolor=ACC, darkcolor=ACC)
         st.configure('Vertical.TScrollbar', background=BTN, troughcolor=FIELD, bordercolor=FIELD,
@@ -171,32 +178,135 @@ class Gui(tk.Tk):
 
     def build_session(self):
         f = self.session
-        st = ttk.LabelFrame(f, text='État', padding=10)
-        st.pack(fill='x', pady=(12, 0))
-        self.st_title = ttk.Label(st, text='', style='Title.TLabel', wraplength=500)
+        top = ttk.LabelFrame(f, text='État', padding=10)
+        top.pack(fill='x', pady=(12, 0))
+        self.st_title = ttk.Label(top, text='', style='Title.TLabel', wraplength=540)
         self.st_title.pack(anchor='w')
-        self.st_sub = ttk.Label(st, text='', style='Dim.TLabel', wraplength=500)
+        self.st_sub = ttk.Label(top, text='', style='Dim.TLabel', wraplength=540)
         self.st_sub.pack(anchor='w')
-        self.bar = ttk.Progressbar(st, maximum=100)
-        r = ttk.Frame(st)
+        self.bar = ttk.Progressbar(top, maximum=100)
+        r = ttk.Frame(top)
         r.pack(fill='x', pady=(8, 0))
         self.btn_send = ttk.Button(r, text='Envoyer et fusionner', command=lambda: self.call('publish'))
         self.btn_send.pack(side='left')
         self.btn_load = ttk.Button(r, text='Charger la version', command=lambda: self.call('reload'))
         self.btn_load.pack(side='left', padx=6)
-        ttk.Button(r, text='Dossier', command=lambda: self.call('folder')).pack(side='left')
         ttk.Button(r, text='Quitter la session', command=self.leave).pack(side='right')
-        r2 = ttk.Frame(st)
-        r2.pack(fill='x', pady=(6, 0))
-        ttk.Button(r2, text='Imposer ma version', command=self.force_send).pack(side='left')
-        ttk.Button(r2, text='Prendre leur version', command=self.force_recv).pack(side='left', padx=6)
-        ttk.Label(r2, text='sans fusion', style='Dim.TLabel').pack(side='left')
+
+        self.nb = ttk.Notebook(f)
+        self.nb.pack(fill='both', expand=True, pady=(12, 0))
+        self.tab_changes = ttk.Frame(self.nb, padding=10)
+        self.tab_hist = ttk.Frame(self.nb, padding=10)
+        self.tab_team = ttk.Frame(self.nb, padding=10)
+        self.tab_invite = ttk.Frame(self.nb, padding=10)
+        self.nb.add(self.tab_changes, text='  Changements  ')
+        self.nb.add(self.tab_hist, text='  Historique  ')
+        self.nb.add(self.tab_team, text='  Équipe  ')
+        self.nb.add(self.tab_invite, text='  Inviter  ')
+        self.invite_shown = True
+
+        # ---- onglet Changements
+        t = self.tab_changes
+        mode = ttk.LabelFrame(t, text='Mode', padding=10)
+        mode.pack(fill='x')
+        self.mode_var = tk.StringVar(value='auto')
+        for val, txt, hint in (
+                ('auto', 'Automatique', 'Ctrl+S envoie et fusionne tout de suite ; les versions reçues se chargent seules.'),
+                ('manual', 'Manuel (validation)', 'Ctrl+S enregistre en local. Vous relisez le résumé des changements reçus, '
+                                                  'puis vous les appliquez et envoyez les vôtres quand vous voulez.')):
+            ttk.Radiobutton(mode, text=txt, value=val, variable=self.mode_var,
+                            command=lambda: self.call('mode', value=self.mode_var.get())).pack(anchor='w')
+            ttk.Label(mode, text=hint, style='Dim.TLabel', wraplength=520, justify='left').pack(anchor='w', padx=(22, 0), pady=(0, 4))
+
+        self.in_card = ttk.LabelFrame(t, text='Changements reçus', padding=10)
+        self.in_head = ttk.Label(self.in_card, text='', style='Title.TLabel', wraplength=520)
+        self.in_head.pack(anchor='w')
+        self.in_text = self.make_text(self.in_card, 4)
+        r = ttk.Frame(self.in_card)
+        r.pack(fill='x', pady=(6, 0))
+        ttk.Button(r, text='Appliquer (fusionner)', style='Big.TButton', command=lambda: self.call('reload')).pack(side='left')
+        ttk.Button(r, text='Ignorer', command=lambda: self.call('ignore')).pack(side='left', padx=6)
+
+        self.out_card = ttk.LabelFrame(t, text='Mes modifications non envoyées', padding=10)
+        self.out_text = self.make_text(self.out_card, 4)
+        r = ttk.Frame(self.out_card)
+        r.pack(fill='x', pady=(6, 0))
+        self.commit_msg = tk.StringVar()
+        e = ttk.Entry(r, textvariable=self.commit_msg)
+        e.pack(side='left', fill='x', expand=True)
+        ttk.Button(r, text='Envoyer', style='Big.TButton', command=self.commit).pack(side='left', padx=(6, 0))
+        ttk.Label(self.out_card, text='Message de version (facultatif)', style='Dim.TLabel').pack(anchor='w')
+
+        adv = self.adv_card = ttk.LabelFrame(t, text='Avancé', padding=10)
+        adv.pack(fill='x', pady=(10, 0))
+        self.cards_state = None
+        r = ttk.Frame(adv)
+        r.pack(fill='x')
+        ttk.Button(r, text='Imposer ma version', command=self.force_send).pack(side='left')
+        ttk.Button(r, text='Prendre leur version', command=self.force_recv).pack(side='left', padx=6)
+        ttk.Label(r, text='sans fusion', style='Dim.TLabel').pack(side='left')
+        r = ttk.Frame(adv)
+        r.pack(fill='x', pady=(6, 0))
+        ttk.Button(r, text='Dossier de la session', command=lambda: self.call('folder')).pack(side='left')
+        ttk.Button(r, text='Journal', command=lambda: self.call('open_log')).pack(side='left', padx=6)
         self.autoload = tk.BooleanVar()
-        ttk.Checkbutton(st, text='Charger automatiquement les nouvelles versions', variable=self.autoload,
+        ttk.Checkbutton(adv, text='Charger automatiquement les nouvelles versions (mode automatique)', variable=self.autoload,
                         command=lambda: self.call('set', key='autoload', value=self.autoload.get())).pack(anchor='w', pady=(8, 0))
 
-        self.codes = ttk.LabelFrame(f, text='Inviter', padding=10)
-        self.codes.pack(fill='x', pady=(10, 0))
+        # ---- onglet Historique
+        h = self.tab_hist
+        self.hist = ttk.Treeview(h, columns=('who', 'when', 'msg'), show='tree headings', height=10)
+        self.hist.heading('#0', text='N°')
+        self.hist.heading('who', text='Auteur')
+        self.hist.heading('when', text='Heure')
+        self.hist.heading('msg', text='Message')
+        self.hist.column('#0', width=60, stretch=False)
+        self.hist.column('who', width=110, stretch=False)
+        self.hist.column('when', width=110, stretch=False)
+        self.hist.column('msg', width=260)
+        sb = ttk.Scrollbar(h, command=self.hist.yview)
+        self.hist.configure(yscrollcommand=sb.set)
+        sb.pack(side='right', fill='y')
+        self.hist.pack(fill='both', expand=True)
+        r = ttk.Frame(self.tab_hist)
+        ttk.Button(r, text='Restaurer cette version', command=self.restore).pack(side='left')
+        ttk.Label(r, text='Crée une nouvelle version identique à l\'ancienne ; rien n\'est effacé.',
+                  style='Dim.TLabel').pack(side='left', padx=8)
+        r.pack(fill='x', pady=(8, 0), side='bottom')
+        self.hist_sig = None
+
+        # ---- onglet Équipe
+        pe = ttk.LabelFrame(self.tab_team, text='Participants', padding=10)
+        pe.pack(fill='x')
+        self.peers = ttk.Treeview(pe, columns=('fl', 'where'), show='tree headings', height=2)
+        self.peers.heading('#0', text='Nom')
+        self.peers.heading('fl', text='FL Studio')
+        self.peers.heading('where', text='Fenêtre')
+        self.peers.column('#0', width=190)
+        self.peers.column('fl', width=100)
+        self.peers.column('where', width=140)
+        self.peers.pack(fill='x')
+        ch = ttk.LabelFrame(self.tab_team, text='Discussion et journal', padding=10)
+        ch.pack(fill='both', expand=True, pady=(10, 0))
+        self.chat = tk.Text(ch, height=8, state='disabled', wrap='word', relief='flat', background=FIELD,
+                            foreground=TXT, insertbackground=TXT, highlightthickness=0, padx=8, pady=6,
+                            font=('Segoe UI', 9))
+        sb = ttk.Scrollbar(ch, command=self.chat.yview)
+        self.chat.configure(yscrollcommand=sb.set)
+        self.chat.tag_configure('sys', foreground=DIM)
+        self.chat.tag_configure('who', font=('Segoe UI', 9, 'bold'), foreground=ACC)
+        sb.pack(side='right', fill='y')
+        self.chat.pack(fill='both', expand=True)
+        r = ttk.Frame(self.tab_team)
+        r.pack(fill='x', pady=(6, 0))
+        self.msg = tk.StringVar()
+        e = ttk.Entry(r, textvariable=self.msg)
+        e.pack(side='left', fill='x', expand=True)
+        e.bind('<Return>', lambda _e: self.send_chat())
+        ttk.Button(r, text='Envoyer', command=self.send_chat).pack(side='left', padx=(6, 0))
+
+        # ---- onglet Inviter
+        self.codes = self.tab_invite
         self.code_vars = {}
         for key, txt in (('vpn', 'VPN (Radmin, Hamachi, Tailscale)'), ('lan', 'Même réseau local'), ('wan', 'Internet')):
             row = ttk.Frame(self.codes)
@@ -208,7 +318,7 @@ class Gui(tk.Tk):
             ttk.Button(line, text='Copier', width=8, command=lambda v=v: self.copy(v.get())).pack(side='left', padx=(6, 0))
             self.code_vars[key] = (row, v)
         self.ipbox = ttk.Frame(self.codes)
-        ttk.Label(self.ipbox, style='Dim.TLabel', wraplength=500, justify='left',
+        ttk.Label(self.ipbox, style='Dim.TLabel', wraplength=540, justify='left',
                   text='Internet : ouverture automatique du port impossible. Redirigez le port TCP sur votre box, '
                        'puis générez un code avec votre adresse IP publique (ou VPN) :').pack(anchor='w')
         r = ttk.Frame(self.ipbox)
@@ -219,35 +329,18 @@ class Gui(tk.Tk):
         self.gen_var = tk.StringVar()
         self.gen_entry = ttk.Entry(self.ipbox, textvariable=self.gen_var, state='readonly')
 
-        pe = ttk.LabelFrame(f, text='Participants', padding=10)
-        pe.pack(fill='x', pady=(10, 0))
-        self.peers = ttk.Treeview(pe, columns=('fl', 'where'), show='tree headings', height=2)
-        self.peers.heading('#0', text='Nom')
-        self.peers.heading('fl', text='FL Studio')
-        self.peers.heading('where', text='Fenêtre')
-        self.peers.column('#0', width=190)
-        self.peers.column('fl', width=100)
-        self.peers.column('where', width=140)
-        self.peers.pack(fill='x')
+    def make_text(self, parent, height):
+        t = tk.Text(parent, height=height, state='disabled', wrap='word', relief='flat', background=FIELD,
+                    foreground=TXT, highlightthickness=0, padx=8, pady=6, font=('Segoe UI', 9))
+        t.pack(fill='x', pady=(4, 0))
+        return t
 
-        ch = ttk.LabelFrame(f, text='Discussion', padding=10)
-        ch.pack(fill='both', expand=True, pady=(10, 0))
-        self.chat = tk.Text(ch, height=4, state='disabled', wrap='word', relief='flat', background=FIELD,
-                            foreground=TXT, insertbackground=TXT, highlightthickness=0, padx=8, pady=6,
-                            font=('Segoe UI', 9))
-        sb = ttk.Scrollbar(ch, command=self.chat.yview)
-        self.chat.configure(yscrollcommand=sb.set)
-        self.chat.tag_configure('sys', foreground=DIM)
-        self.chat.tag_configure('who', font=('Segoe UI', 9, 'bold'), foreground=ACC)
-        sb.pack(side='right', fill='y')
-        self.chat.pack(fill='both', expand=True)
-        r = ttk.Frame(f)
-        r.pack(fill='x', pady=(6, 0))
-        self.msg = tk.StringVar()
-        e = ttk.Entry(r, textvariable=self.msg)
-        e.pack(side='left', fill='x', expand=True)
-        e.bind('<Return>', lambda _e: self.send_chat())
-        ttk.Button(r, text='Envoyer', command=self.send_chat).pack(side='left', padx=(6, 0))
+    @staticmethod
+    def set_text(widget, lines):
+        widget.configure(state='normal')
+        widget.delete('1.0', 'end')
+        widget.insert('end', '\n'.join('•  ' + x for x in lines))
+        widget.configure(state='disabled')
 
     # ------------------------------------------------------------- actions
     def call(self, op, done=None, **kw):
@@ -277,6 +370,20 @@ class Gui(tk.Tk):
     def leave(self):
         if messagebox.askyesno('FL Cowork', 'Quitter la session ?'):
             self.call('leave')
+
+    def commit(self):
+        self.call('publish', msg=self.commit_msg.get().strip())
+        self.commit_msg.set('')
+
+    def restore(self):
+        sel = self.hist.selection()
+        if not sel:
+            messagebox.showinfo('FL Cowork', "Sélectionnez d'abord une version dans la liste.")
+            return
+        n = int(sel[0])
+        if messagebox.askyesno('Restaurer', 'Revenir à la version %d chez tous les participants ?\n\n'
+                                            "Une nouvelle version identique à celle-là sera créée ; l'historique est conservé." % n):
+            self.call('restore', n=n)
 
     def force_send(self):
         if messagebox.askyesno('Imposer ma version',
@@ -388,22 +495,57 @@ class Gui(tk.Tk):
         else:
             self.bar.pack_forget()
         need = bool(rev) and (sess['local_n'] != rev['n'])
-        self.btn_load.state(['!disabled' if need else 'disabled'])
+        manual = S.get('mode') == 'manual'
+        self.btn_load.state(['!disabled' if need and not manual else 'disabled'])
+        self.btn_send.configure(text='Envoyer' if manual else 'Envoyer et fusionner')
+        if self.focus_get() is None or not isinstance(self.focus_get(), tk.Radiobutton):
+            self.mode_var.set(S.get('mode', 'auto'))
         codes = sess['codes'] if sess['role'] == 'host' else {}
-        if sess['role'] == 'host':
-            self.codes.pack(fill='x', pady=(10, 0), after=self.st_title.master)
-        else:
-            self.codes.pack_forget()
+        host = sess['role'] == 'host'
+        if host != self.invite_shown:
+            self.invite_shown = host
+            self.nb.tab(self.tab_invite, state='normal' if host else 'hidden')
         for key, (row, v) in self.code_vars.items():
             if codes.get(key):
                 row.pack(fill='x', pady=(0, 6))
                 v.set(codes[key])
             else:
                 row.pack_forget()
-        if sess['role'] == 'host' and not codes.get('wan'):
+        if host and not codes.get('wan'):
             self.ipbox.pack(fill='x')
         else:
             self.ipbox.pack_forget()
+        # changements recus / locaux
+        inc = sess.get('incoming')
+        if inc:
+            self.in_head.configure(text='%s · version %d%s%s' % (
+                inc['author'], inc['n'], ' · « %s »' % inc['msg'] if inc['msg'] else '',
+                ' · IMPOSÉE (remplace votre projet)' if inc['force'] else ''))
+            lines = inc['lines'] or ['Analyse en cours…']
+            if inc['force']:
+                lines = lines + ['Cette version a été imposée : elle remplacera votre projet (copie dans Sauvegardes).']
+            self.set_text(self.in_text, lines)
+        show_in = bool(inc)
+        show_out = bool(manual or sess['local_dirty'])
+        if (show_in, show_out) != self.cards_state:
+            self.cards_state = (show_in, show_out)
+            self.in_card.pack_forget()
+            self.out_card.pack_forget()
+            if show_in:
+                self.in_card.pack(fill='x', pady=(10, 0), before=self.adv_card)
+            if show_out:
+                self.out_card.pack(fill='x', pady=(10, 0), before=self.adv_card)
+        if show_out:
+            self.set_text(self.out_text, sess.get('local_lines') or ['Aucune modification locale depuis la dernière version.'])
+        hist = sess.get('history') or []
+        hs = tuple((h['n'], h.get('msg', '')) for h in hist)
+        if hs != self.hist_sig:
+            self.hist_sig = hs
+            self.hist.delete(*self.hist.get_children())
+            for h in reversed(hist):
+                self.hist.insert('', 'end', iid=str(h['n']), text=str(h['n']),
+                                 values=(h.get('author_name', ''), time.strftime('%d/%m %H:%M', time.localtime(h['time'])),
+                                         (h.get('msg') or '') + (' [imposée]' if h.get('force') and not h.get('msg') else '')))
         sig = tuple((p['name'], p['me'], p['fl'], p['where'], p['play']) for p in sess['peers'])
         if sig != self.peer_sig:
             self.peer_sig = sig

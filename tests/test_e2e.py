@@ -214,6 +214,36 @@ def main():
         step[0] += 1
         print('  ok %2d  le travail ecarte est conserve dans Sauvegardes' % step[0])
 
+        # ---- mode manuel (validation) : rien ne part ni ne s'applique sans accord
+        b.act('mode', value='manual')
+        n0 = a.state()['session']['rev']['n']
+        set_notes(fa, [10, 20])
+        pump(lambda: (b.state()['session']['incoming'] or {}).get('lines'), 'B (manuel) voit un resume des changements recus')
+        inc = b.state()['session']['incoming']
+        assert inc['n'] > n0 and any('Notes' in x or 'Playlist' in x or 'réglage' in x.lower() for x in inc['lines']), inc
+        assert get_notes(fb) == [777], 'rien ne doit etre applique avant validation'
+        b.act('reload')
+        pump(lambda: get_notes(fb) == [10, 20] and not b.state()['session']['incoming'], 'B valide : version appliquee')
+        b.load_project('Mon Morceau')
+        time.sleep(1.2)
+        nrev = a.state()['session']['rev']['n']
+        set_notes(fb, [10, 20, 30])
+        pump(lambda: b.state()['session']['local_dirty'] and b.state()['session']['local_lines'], 'B (manuel) : modifications locales resumees')
+        time.sleep(2.5)
+        assert a.state()['session']['rev']['n'] == nrev, 'envoi automatique en mode manuel'
+        b.act('publish', msg='ajout de la note 30')
+        pump(lambda: get_notes(fa) == [10, 20, 30], 'B envoie (Envoyer) : A recoit')
+        assert a.state()['session']['history'][-1]['msg'] == 'ajout de la note 30'
+        a.load_project('Mon Morceau')
+        # restauration d'une ancienne version
+        old = next(h for h in a.state()['session']['history'] if h['n'] == n0 + 0)
+        b.act('restore', n=old['n'])
+        pump(lambda: get_notes(fa) == get_notes(fb) and get_notes(fa) != [10, 20, 30],
+             'restauration de la version %d : chez les deux' % old['n'])
+        assert b.state()['session']['history'][-1]['msg'].startswith('Restauration')
+        b.act('mode', value='auto')
+        time.sleep(0.5)
+
         b.act('chat', text='salut')
         pump(lambda: any(m.get('text') == 'salut' for m in a.state()['session']['chat']), 'discussion')
         b.act('leave')

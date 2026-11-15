@@ -228,6 +228,14 @@ o, r = flp.merge(tracks_base, with_tracks(mine, 1), resalt(with_tracks(theirs, 1
 assert r['ok'] and time.time() - t0 < 3, time.time() - t0
 assert len(read(o)[0]) == 3 and sum(1 for e, _ in flp.events(o) if e == 238) == sum(1 for e, _ in flp.events(tracks_base) if e == 238)
 
+# --- resume des changements ----------------------------------------------------
+lines = flp.summarize(base, add_channel(make(tpl, B + [clip(768, 384, 499, serial=4)], [note(0, 60), note(96, 64)]), 'Basse'))
+txt = ' | '.join(lines)
+assert 'Nouveau canal : Basse' in txt and 'Notes du pattern' in txt and '+1' in txt and 'Playlist : +1 clip' in txt, lines
+assert flp.summarize(base, stamp(base)) == ['Aucun changement notable.']
+tp2 = flp._build(flp._head(base), [(e, struct.pack('<I', 150000) if e == 156 else r) for e, r in flp.events(base)])
+assert any('Tempo' in x and '150' in x for x in flp.summarize(base, tp2)), flp.summarize(base, tp2)
+
 v = flp.set_version(theirs, '24.0.0.1')
 assert flp.version_of(v) == '24.0.0.1' and read(v) == read(theirs)
 print('FUSION OK')
